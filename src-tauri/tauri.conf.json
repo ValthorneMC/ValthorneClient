@@ -1,0 +1,74 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Kindly Klan Klient",
+  "identifier": "com.kindlyklan.klient",
+  "build": {
+    "beforeDevCommand": "pnpm dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "pnpm build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Kindly Klan Klient",
+        "width": 1200,
+        "height": 650,
+        "resizable": true,
+        "minWidth": 800,
+        "minHeight": 600,
+        "dragDropEnabled": false,
+        "transparent": true,
+        "theme": "Dark"
+      }
+    ],
+    "security": {
+      "csp": null,
+      "assetProtocol": {
+        "enable": true,
+        "scope": [
+          "https://crafatar.com", 
+          "https://minotar.net",
+          "https://mc-heads.net",
+          "https://*.minecraft.net", 
+          "http://files.kindlyklan.com", 
+          "https://files.kindlyklan.com",
+          "$HOME/.kindlyklanklient/**/*",
+          "$APPDATA/.kindlyklanklient/**/*",
+          "http://localhost:1420/**/*",
+          "https://*.mo"
+        ]
+      }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "createUpdaterArtifacts": true,
+    "windows": {
+      "wix": {
+        "language": "es-ES"
+      }
+    },
+    "icon": [
+      "icons/kkkicon32.png",
+      "icons/kkkicon128.png",
+      "icons/kkicon512.png",
+      "icons/icon.ico"
+    ]
+  },
+  "plugins": {
+    "shell": {
+      "open": true
+    },
+    "updater": {
+      "active": true,
+      "endpoints": [
+        "https://github.com/Kindly-Klan/KindlyKlanKlient/releases/latest/download/latest.json"
+      ],
+      "dialog": false,
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDZDNDA0RDU0ODlCNUMzNjEKUldSaHc3V0pWRTFBYkhCTXVOOEdUcTlOSkJJL2dFWFYwaXg4aUNWMHhVSnM3ZDN2L09UQXl2Z0kK"
+    }
+  }
+}
