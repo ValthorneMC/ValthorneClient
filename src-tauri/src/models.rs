@@ -51,7 +51,7 @@ pub struct IgnoredFilesConfig {
     pub shaderpacks: Vec<String>,
 }
 
-/// Historial de archivos que estuvieron en el manifest anterior
+/// History of files that were in the previous manifest
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ManifestHistory {
     pub last_updated: String,
@@ -68,7 +68,7 @@ pub struct ManifestHistoryFiles {
     pub resourcepacks: Vec<String>,
     #[serde(default)]
     pub shaderpacks: Vec<String>,
-    /// Archivos en la raíz de la instancia que estaban en el manifest
+    /// Files at the instance root that were in the manifest
     #[serde(default)]
     pub root_files: Vec<String>,
 }
@@ -236,35 +236,6 @@ pub struct AdminEntry {
     pub minecraft_username: String,
 }
 
-// Local instances structures
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct LocalInstance {
-    pub id: String,
-    pub name: String,
-    pub minecraft_version: String,
-    #[serde(default)]
-    pub fabric_version: String, // Mantener para compatibilidad retroactiva
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub mod_loader: Option<ModLoader>,
-    pub created_at: String,
-    pub is_local: bool,
-    pub background: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct LocalInstanceMetadata {
-    pub id: String,
-    pub name: String,
-    pub minecraft_version: String,
-    #[serde(default)]
-    pub fabric_version: String, // Mantener para compatibilidad retroactiva
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub mod_loader: Option<ModLoader>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub version_id: Option<String>, // ID exacto del JSON generado por el instalador (ej. "neoforge-21.8.51")
-    pub created_at: String,
-}
-
 // Minecraft version structures
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MinecraftVersionManifest {
@@ -316,7 +287,7 @@ pub struct NeoForgeVersion {
     pub minecraft_version: String,
 }
 
-// Configuración unificada del launcher
+// Unified launcher configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LauncherConfig {
     #[serde(default)]

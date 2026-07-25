@@ -70,16 +70,6 @@ pub async fn check_whitelist_access(username: String) -> Result<AccessCheck, Str
 }
 
 #[tauri::command]
-pub async fn get_accessible_instances(username: String, all_instances: Vec<String>) -> Result<Vec<String>, String> {
-    let access_check = check_whitelist_access(username).await?;
-    if !access_check.has_access { return Ok(Vec::new()); }
-    if access_check.global_access { Ok(all_instances) } else {
-        let accessible: Vec<String> = all_instances.into_iter().filter(|instance| access_check.allowed_instances.contains(instance)).collect();
-        Ok(accessible)
-    }
-}
-
-#[tauri::command]
 pub async fn clear_whitelist_cache() -> Result<String, String> {
     // Cache has been removed - this function is kept for backwards compatibility
     log::info!("clear_whitelist_cache called but cache is disabled");

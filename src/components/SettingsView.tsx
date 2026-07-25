@@ -252,39 +252,39 @@ const SettingsView: React.FC<SettingsViewProps> = ({ addToast, scrollToUpdates =
 
   const handleMinRamChange = (value: number) => {
     const maxRamLimit = Math.max(2, Math.floor(systemRam * 0.75));
-    // Redondear a múltiplos de 0.5 (valor válido para Java)
+    // Round to multiples of 0.5 (valid value for Java)
     const roundedValue = Math.round(value * 2) / 2;
-    
-    // Actualizar display inmediatamente para respuesta fluida
+
+    // Update the display immediately for a fluid response
     setDisplayMinRam(roundedValue);
-    
-    // Solo procesar cambios válidos (cuando se suelta o llega a un step válido)
+
+    // Only process valid changes (on release or when reaching a valid step)
     if (roundedValue <= maxRamLimit) {
       let newMaxRam = maxRam;
-      
-      // Si el mínimo supera al máximo, subir el máximo automáticamente
+
+      // If the minimum exceeds the maximum, raise the maximum automatically
       if (roundedValue > maxRam && roundedValue <= maxRamLimit) {
         newMaxRam = roundedValue;
         setMaxRam(newMaxRam);
         setDisplayMaxRam(newMaxRam);
       }
-      
+
       setMinRam(roundedValue);
       saveConfig(roundedValue, newMaxRam);
     }
   };
-  
-  // Handler para cuando se está arrastrando (actualización fluida del display)
+
+  // Handler for when the slider is being dragged (fluid display update)
   const handleMinRamInput = (value: number) => {
     const maxRamLimit = Math.max(2, Math.floor(systemRam * 0.75));
-    // Redondear a múltiplos de 0.5 para mostrar, pero mantener fluidez
+    // Round to multiples of 0.5 for display, but keep it fluid
     const roundedValue = Math.round(value * 2) / 2;
-    
-    // Solo actualizar el display visual mientras se arrastra
+
+    // Only update the visual display while dragging
     if (roundedValue <= maxRamLimit) {
       setDisplayMinRam(roundedValue);
-      
-      // Si supera el máximo, actualizar también el display del máximo
+
+      // If it exceeds the maximum, also update the maximum display
       if (roundedValue > maxRam) {
         setDisplayMaxRam(roundedValue);
       }
@@ -293,25 +293,25 @@ const SettingsView: React.FC<SettingsViewProps> = ({ addToast, scrollToUpdates =
 
   const handleMaxRamChange = (value: number) => {
     const maxRamLimit = Math.max(2, Math.floor(systemRam * 0.75));
-    // Redondear a múltiplos de 0.5 (valor válido para Java)
+    // Round to multiples of 0.5 (valid value for Java)
     const roundedValue = Math.round(value * 2) / 2;
-    
-    // Actualizar display inmediatamente para respuesta fluida
+
+    // Update the display immediately for a fluid response
     setDisplayMaxRam(roundedValue);
-    
+
     if (roundedValue >= minRam && roundedValue <= maxRamLimit) {
       setMaxRam(roundedValue);
       saveConfig(minRam, roundedValue);
     }
   };
-  
-  // Handler para cuando se está arrastrando (actualización fluida del display)
+
+  // Handler for when the slider is being dragged (fluid display update)
   const handleMaxRamInput = (value: number) => {
     const maxRamLimit = Math.max(2, Math.floor(systemRam * 0.75));
-    // Redondear a múltiplos de 0.5 para mostrar, pero mantener fluidez
+    // Round to multiples of 0.5 for display, but keep it fluid
     const roundedValue = Math.round(value * 2) / 2;
-    
-    // Solo actualizar el display visual mientras se arrastra
+
+    // Only update the visual display while dragging
     if (roundedValue >= minRam && roundedValue <= maxRamLimit) {
       setDisplayMaxRam(roundedValue);
     }
@@ -331,10 +331,10 @@ const SettingsView: React.FC<SettingsViewProps> = ({ addToast, scrollToUpdates =
         />
       </div>
 
-      {/* Subtle neon accents in background */}
+      {/* Subtle Valthorne mist accents in background */}
       <div className="absolute inset-0 z-5 opacity-10">
-        <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-[#00ffff] rounded-full blur-3xl"></div>
-        <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-[#ff00ff] rounded-full blur-3xl"></div>
+        <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-[#d4af37] rounded-full blur-3xl"></div>
+        <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-[#7c4dbd] rounded-full blur-3xl"></div>
       </div>
 
       {/* Overlay */}
@@ -348,7 +348,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ addToast, scrollToUpdates =
             isScrolled ? 'shadow-2xl shadow-black/50 bg-gradient-to-b from-black/20 to-transparent pb-4' : ''
           }`}>
             <div className="flex items-center gap-4 mb-6">
-              <h1 className={`text-4xl font-black tracking-wide text-white drop-shadow-lg transition-all duration-500 ${
+              <h1 className={`font-heading text-4xl font-black tracking-wide text-white drop-shadow-lg transition-all duration-500 ${
                 isScrolled ? 'opacity-80 scale-95' : 'opacity-100 scale-100'
               }`}>
                 Ajustes
@@ -393,7 +393,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ addToast, scrollToUpdates =
                     <path d="M95 345c62 4 158-3 160-32 0 0-4 11-51 20-53 10-119 9-158 2 0 0 8 7 49 10" fill="#5382A1"/>
                   </svg>
                 </div>
-                <h2 className="text-2xl font-bold text-white">Configuración de Java</h2>
+                <h2 className="font-heading text-2xl font-bold text-white">Configuración de Java</h2>
               </div>
 
               {/* RAM Configuration */}
@@ -454,7 +454,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ addToast, scrollToUpdates =
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
                   </svg>
                 </div>
-                <h2 className="text-2xl font-bold text-white">Configuración de la JVM</h2>
+                <h2 className="font-heading text-2xl font-bold text-white">Configuración de la JVM</h2>
               </div>
 
               <div className="space-y-6">
@@ -483,8 +483,8 @@ const SettingsView: React.FC<SettingsViewProps> = ({ addToast, scrollToUpdates =
                         }}
                         className={`p-3 rounded-xl border-2 transition-all duration-300 ease-out ${
                           garbageCollector === gc
-                            ? 'glass-light border-[#00ffff]/50 cursor-pointer text-cyan-200 neon-glow-cyan'
-                            : 'glass-light border-white/10 text-white/70 hover:bg-white/10 hover:border-[#00ffff]/30 cursor-pointer'
+                            ? 'glass-light border-[#d4af37]/50 cursor-pointer text-[#e8cf7a] neon-glow-cyan'
+                            : 'glass-light border-white/10 text-white/70 hover:bg-white/10 hover:border-[#d4af37]/30 cursor-pointer'
                         }`}
                       >
                         <div className="text-sm font-semibold">{gc}</div>
@@ -525,7 +525,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ addToast, scrollToUpdates =
                 <path fill="#FFA500" d="M6 3a3 3 0 0 0-3 3v8a3 3 0 0 0 3 3h3.6a5.465 5.465 0 0 1-.393-1H6a2 2 0 0 1-2-2V7h12v2.207c.349.099.683.23 1 .393V6a3 3 0 0 0-3-3H6ZM4 6a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2H4Zm8.065 5.442a2 2 0 0 1-1.43 2.478l-.462.118a4.734 4.734 0 0 0 .01 1.016l.35.083a2 2 0 0 1 1.456 2.519l-.127.422c.258.204.537.378.835.518l.325-.344a2 2 0 0 1 2.91.002l.337.358c.292-.135.568-.302.822-.498l-.156-.556a2 2 0 0 1 1.43-2.479l.46-.117a4.7 4.7 0 0 0-.01-1.017l-.348-.082a2 2 0 0 1-1.456-2.52l.126-.421a4.318 4.318 0 0 0-.835-.519l-.325.344a2 2 0 0 1-2.91-.001l-.337-.358a4.31 4.31 0 0 0-.821.497l.156.557Zm2.434 4.058a1 1 0 1 1 0-2a1 1 0 0 1 0 2Z"/>
                 </svg>
                 </div>
-                <h2 className="text-2xl font-bold text-white">Configuración de Ventana</h2>
+                <h2 className="font-heading text-2xl font-bold text-white">Configuración de Ventana</h2>
               </div>
 
               <div className="space-y-6">
@@ -598,7 +598,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ addToast, scrollToUpdates =
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                     </svg>
                   </div>
-                  <h2 className="text-2xl font-bold text-white">Actualizaciones</h2>
+                  <h2 className="font-heading text-2xl font-bold text-white">Actualizaciones</h2>
                 </div>
                 
                 {/* Status Badge - A la derecha del header */}
@@ -652,19 +652,19 @@ const SettingsView: React.FC<SettingsViewProps> = ({ addToast, scrollToUpdates =
                   <button
                     onClick={handleCheckForUpdates}
                     disabled={isCheckingUpdates}
-                    className="px-4 py-2 rounded-xl border-2 border-cyan-400/60 text-cyan-200 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 flex items-center gap-2"
+                    className="px-4 py-2 rounded-xl border-2 border-[#d4af37]/60 text-[#e8cf7a] disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 flex items-center gap-2"
                     style={{
                       background: isCheckingUpdates
-                        ? 'linear-gradient(135deg, rgba(34, 211, 238, 0.1) 0%, rgba(0, 0, 0, 0.3) 100%)'
-                        : 'linear-gradient(135deg, rgba(34, 211, 238, 0.15) 0%, rgba(0, 0, 0, 0.5) 100%)',
+                        ? 'linear-gradient(135deg, rgba(212, 175, 55, 0.1) 0%, rgba(0, 0, 0, 0.3) 100%)'
+                        : 'linear-gradient(135deg, rgba(212, 175, 55, 0.15) 0%, rgba(0, 0, 0, 0.5) 100%)',
                       backdropFilter: 'blur(20px)',
                       WebkitBackdropFilter: 'blur(20px)',
                       boxShadow: '0 4px 16px 0 rgba(0, 0, 0, 0.4)',
                     }}
                     onMouseEnter={(e) => {
                       if (!isCheckingUpdates) {
-                        e.currentTarget.style.background = 'linear-gradient(135deg, rgba(34, 211, 238, 0.25) 0%, rgba(0, 0, 0, 0.6) 100%)';
-                        e.currentTarget.style.boxShadow = '0 6px 20px 0 rgba(34, 211, 238, 0.3)';
+                        e.currentTarget.style.background = 'linear-gradient(135deg, rgba(212, 175, 55, 0.25) 0%, rgba(0, 0, 0, 0.6) 100%)';
+                        e.currentTarget.style.boxShadow = '0 6px 20px 0 rgba(212, 175, 55, 0.3)';
                         e.currentTarget.style.cursor = 'pointer';
                       } else {
                         e.currentTarget.style.cursor = 'not-allowed';
@@ -672,7 +672,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ addToast, scrollToUpdates =
                     }}
                     onMouseLeave={(e) => {
                       if (!isCheckingUpdates) {
-                        e.currentTarget.style.background = 'linear-gradient(135deg, rgba(34, 211, 238, 0.15) 0%, rgba(0, 0, 0, 0.5) 100%)';
+                        e.currentTarget.style.background = 'linear-gradient(135deg, rgba(212, 175, 55, 0.15) 0%, rgba(0, 0, 0, 0.5) 100%)';
                         e.currentTarget.style.boxShadow = '0 4px 16px 0 rgba(0, 0, 0, 0.4)';
                         e.currentTarget.style.cursor = 'pointer';
                       } else {
@@ -682,7 +682,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ addToast, scrollToUpdates =
                   >
                     {isCheckingUpdates ? (
                       <>
-                        <div className="w-4 h-4 border-2 border-cyan-300 border-t-transparent rounded-full animate-spin"></div>
+                        <div className="w-4 h-4 border-2 border-[#d4af37] border-t-transparent rounded-full animate-spin"></div>
                         Verificando...
                       </>
                     ) : (
@@ -779,7 +779,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ addToast, scrollToUpdates =
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                   </svg>
                 </div>
-                <h2 className="text-2xl font-bold text-white">Logs</h2>
+                <h2 className="font-heading text-2xl font-bold text-white">Logs</h2>
               </div>
 
               <div className="flex gap-3">
@@ -859,7 +859,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ addToast, scrollToUpdates =
                     <path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515a.074.074 0 0 0-.079.037c-.21.375-.445.864-.608 1.25a18.27 18.27 0 0 0-5.487 0a12.64 12.64 0 0 0-.617-1.25a.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057a19.9 19.9 0 0 0 5.993 3.03a.078.078 0 0 0 .084-.028a14.09 14.09 0 0 0 1.226-1.994a.076.076 0 0 0-.041-.106a13.107 13.107 0 0 1-1.872-.892a.077.077 0 0 1-.008-.128a10.2 10.2 0 0 0 .372-.292a.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127a12.299 12.299 0 0 1-1.873.892a.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028a19.839 19.839 0 0 0 6.002-3.03a.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419c0-1.333.956-2.419 2.157-2.419c1.21 0 2.176 1.096 2.157 2.42c0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419c0-1.333.955-2.419 2.157-2.419c1.21 0 2.176 1.096 2.157 2.42c0 1.333-.946 2.418-2.157 2.418z"/>
                   </svg>
                 </div>
-                <h2 className="text-2xl font-bold text-white">Discord Rich Presence</h2>
+                <h2 className="font-heading text-2xl font-bold text-white">Discord Rich Presence</h2>
               </div>
 
               <div className="space-y-6">
@@ -901,7 +901,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ addToast, scrollToUpdates =
 
                             setDiscordRpcEnabled(newEnabled);
 
-                            // Guardar configuración
+                            // Save configuration
                             await invoke('save_discord_rpc_config', { enabled: newEnabled });
 
                           } catch (error) {

@@ -5,6 +5,7 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { register } from "@tauri-apps/plugin-global-shortcut";
 import { Button } from "@/components/ui/button";
+import { BorderBeam } from "border-beam";
 import Loader from "@/components/Loader";
 import { Toaster } from "vibe-toast";
 import { addAppToast } from "@/utils/appToast";
@@ -12,7 +13,7 @@ import Sidebar from "@/components/Sidebar";
 import UserProfile from "@/components/UserProfile";
 import SettingsView from "@/components/SettingsView";
 import InstanceView from "@/components/InstanceView";
-import LocalInstancesView from "@/components/LocalInstancesView";
+import HomeScreen from "@/components/HomeScreen";
 import DownloadProgressToast from "@/components/DownloadProgressToast";
 import UpdateReadyToast from "@/components/UpdateReadyToast";
 import { SkinManager } from "@/components/skin/SkinManager";
@@ -21,30 +22,25 @@ import { showIndeterminateProgressBar, hideProgressBar } from "@/utils/progressB
 import { UpdaterService } from "@/services/updater";
 import { WhitelistService } from "@/services/whitelist";
 import { SessionService } from "@/services/sessions";
-import { AdminService } from "@/services/admins";
 import NoAccessScreen from "@/components/NoAccessScreen";
-import CreateLocalInstanceModal from "@/components/CreateLocalInstanceModal";
-import ModrinthSearchModal from "@/components/ModrinthSearchModal";
-import CopyFoldersModal from "@/components/CopyFoldersModal";
-import type { LocalInstance } from "@/types/local-instances";
-import kindlyklanLogo from "@/assets/kindlyklan.png";
+import valthorneLogo from "@/assets/valthorne.png";
 import microsoftIcon from "@/assets/icons/microsoft.svg";
 import { logger } from "@/utils/logger";
 
-// Función para actualizar Discord presence
+// Function to update Discord presence
 const updateDiscordPresence = async (state: string, details: string) => {
   try {
-    // Primero verificar si Discord RPC está habilitado
+    // First check whether Discord RPC is enabled
     const config = await invoke<{ enabled: boolean }>('load_discord_rpc_config');
     if (!config.enabled) return;
 
-    // Verificar si está inicializado
+    // Check whether it's initialized
     const isEnabled = await invoke<boolean>('is_discord_rpc_enabled');
     if (!isEnabled) return;
 
     await invoke('update_discord_presence', { state, details: details || '' });
   } catch (error) {
-    // Silenciar errores de Discord RPC para no molestar al usuario
+    // Silence Discord RPC errors so as not to bother the user
     void logger.debug('Discord RPC update failed (may not be enabled)', 'updateDiscordPresence');
   }
 };
@@ -82,10 +78,10 @@ const ensureJavaInstalled = async (
   }
 
   try {
-    // Mostrar indicador de progreso indeterminado al iniciar descarga
+    // Show indeterminate progress indicator when starting the download
     void showIndeterminateProgressBar();
-    
-    // Escuchar eventos de progreso de Java
+
+    // Listen for Java progress events
     const unlistenProgress = await listen('java-download-progress', (e: any) => {
       const data = e.payload as { percentage: number; status: string };
       if (setJavaProgress) {
@@ -96,7 +92,7 @@ const ensureJavaInstalled = async (
     const unlistenCompleted = await listen('java-download-completed', async (e: any) => {
       try {
         await hideProgressBar();
-        // Mostrar notificación
+        // Show notification
         await sendNotificationSafe({
           title: 'Java instalado',
           body: `Java ${e.payload.version || ''} se ha instalado correctamente`,
@@ -355,31 +351,16 @@ function App() {
   const [distributionLoaded, setDistributionLoaded] = useState(false);
   const [skinViewOpen, setSkinViewOpen] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState<AssetDownloadProgress | null>(null);
-  const [logoVisible, setLogoVisible] = useState(false);
   const [isDownloadingAssets, setIsDownloadingAssets] = useState(false);
   const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
   const [updateDialogState, setUpdateDialogState] = useState<{ isDownloadReady: boolean; hasUpdateAvailable: boolean; version: string | null } | null>(null);
   const [showNoAccessScreen, setShowNoAccessScreen] = useState(false);
-  const [filteredInstances, setFilteredInstances] = useState<any[]>([]);
   const initialized = useRef(false);
-  
+
   const [updateDownloadProgress, setUpdateDownloadProgress] = useState<number | null>(null);
   const [updateDownloadVersion, setUpdateDownloadVersion] = useState<string | null>(null);
   const [updateReadyVersion, setUpdateReadyVersion] = useState<string | null>(null);
   const [closeDialogOpen, setCloseDialogOpen] = useState(false);
-
-  // Estados para instancias locales
-  const [localInstances, setLocalInstances] = useState<LocalInstance[]>([]);
-  const [isAdmin, setIsAdmin] = useState(false);
-  const [createLocalModalOpen, setCreateLocalModalOpen] = useState(false);
-  const [creatingInstanceId, setCreatingInstanceId] = useState<string | null>(null);
-  const [syncModsModalOpen, setSyncModsModalOpen] = useState(false);
-  const [syncingLocalId, setSyncingLocalId] = useState<string | null>(null);
-  const [modrinthModalOpen, setModrinthModalOpen] = useState(false);
-  const [modrinthInstanceId, setModrinthInstanceId] = useState<string | null>(null);
-  const [copyFoldersModalOpen, setCopyFoldersModalOpen] = useState(false);
-  const [copyFoldersInstanceId, setCopyFoldersInstanceId] = useState<string | null>(null);
-  const [showLocalInstancesView, setShowLocalInstancesView] = useState(false);
 
   useEffect(() => {
     void logger.info('Aplicación iniciada', 'APP');
@@ -424,15 +405,7 @@ function App() {
     return () => { if (unlisten) { try { unlisten(); } catch {} } };
   }, []);
   
-  useEffect(() => {
-    if (!selectedInstance && !settingsOpen && !skinViewOpen && currentAccount) {
-      setLogoVisible(false);
-      const timer = setTimeout(() => setLogoVisible(true), 50);
-      return () => clearTimeout(timer);
-    }
-  }, [selectedInstance, settingsOpen, skinViewOpen, currentAccount]);
-  
-  const DISTRIBUTION_URL = 'http://files.kindlyklan.com:26500/dist/manifest.json';
+  const DISTRIBUTION_URL = 'https://files.playvalthorne.com/dist/manifest.json';
 
   const checkForUpdatesOnStartup = async () => {
     try {
@@ -619,14 +592,11 @@ function App() {
     };
   }, [accounts.length, isLoginVisible]);
 
-  // Actualizar Discord presence cuando cambie la vista
+  // Update Discord presence when the view changes
   useEffect(() => {
     const updatePresence = async () => {
       if (selectedInstance) {
-        // Buscar el nombre de la instancia
-        const instance = [...(filteredInstances || []), ...(localInstances || [])]
-          .find(inst => inst.id === selectedInstance);
-        const instanceName = instance ? instance.name : 'Instancia desconocida';
+        const instanceName = mainInstance?.name || 'Instancia desconocida';
         await updateDiscordPresence(`Jugando ${instanceName}`, '');
       } else {
         await updateDiscordPresence('En el cliente', '');
@@ -675,19 +645,23 @@ function App() {
 
   const addToast = addAppToast;
 
-  const handleInstanceSelect = (instanceId: string) => {
+  // Single Valthorne instance (no more selection between multiple instances)
+  const mainInstance = distribution
+    ? distribution.instances.find(inst => inst.id === 'valthorne') || distribution.instances[0] || null
+    : null;
+
+  const handlePlay = () => {
     setSkinViewOpen(false);
     setSettingsOpen(false);
-    if (instanceId === 'local-instances-view') {
-      setShowLocalInstancesView(true);
-      setSelectedInstance(null);
-    } else {
-      setShowLocalInstancesView(false);
-    setSelectedInstance(instanceId);
-      if (localInstances.some(li => li.id === instanceId)) {
-        localStorage.setItem(`last_played_${instanceId}`, Date.now().toString());
-      }
+    if (mainInstance) {
+      setSelectedInstance(mainInstance.id);
     }
+  };
+
+  const handleGoHome = () => {
+    setSkinViewOpen(false);
+    setSettingsOpen(false);
+    setSelectedInstance(null);
   };
 
   const handleAddAccount = async () => {
@@ -798,171 +772,19 @@ function App() {
 
 
   const loadDistribution = async () => {
-    if (distributionLoaded) return; 
+    if (distributionLoaded) return;
     try {
       const manifest = await invoke<DistributionManifest>('load_distribution_manifest', {
         url: DISTRIBUTION_URL
       });
       setDistribution(manifest);
       setDistributionLoaded(true);
-      
-      if (currentAccount) {
-        const accessibleInstances = await WhitelistService.getAccessibleInstances(
-          currentAccount.user.username,
-          manifest.instances
-        );
-        setFilteredInstances(accessibleInstances);
-      } else {
-        setFilteredInstances(manifest.instances);
-      }
-      
-      addToast(`¡Instancias cargadas correctamente!`, 'success');
+
+      addToast(`¡Instancia cargada correctamente!`, 'success');
     } catch (error) {
       addToast('Error al cargar la distribución', 'error');
     }
   };
-
-  const checkAdminStatus = async () => {
-    if (!currentAccount) {
-      setIsAdmin(false);
-      return;
-    }
-
-    try {
-      const admin = await AdminService.checkIsAdmin(currentAccount.user.username);
-      setIsAdmin(admin);
-    } catch (error) {
-      void logger.error('Error checking admin status', error, 'checkAdminStatus');
-      setIsAdmin(false);
-    }
-  };
-
-  const loadLocalInstancesRef = useRef<(() => Promise<void>) | null>(null);
-
-  const loadLocalInstances = async () => {
-    if (!isAdmin) {
-      setLocalInstances([]);
-      return;
-    }
-
-    try {
-      const instances = await invoke<LocalInstance[]>('get_local_instances');
-      setLocalInstances(instances);
-    } catch (error) {
-      void logger.error('Error loading local instances', error, 'loadLocalInstances');
-      addToast('Error al cargar instancias locales', 'error');
-    }
-  };
-  
-  loadLocalInstancesRef.current = loadLocalInstances;
-  
-  const handleCreateLocalInstance = (instance: LocalInstance) => {
-    setCreatingInstanceId(instance.id);    
-    setTimeout(() => {
-      setCreatingInstanceId(null);
-    }, 2000);
-  };
-
-  const handleSyncMods = (localId: string) => {
-    setSyncingLocalId(localId);
-    setSyncModsModalOpen(true);
-  };
-
-  const handleSyncModsConfirm = async (remoteId: string) => {
-    if (!syncingLocalId || !distribution) return;
-
-    try {
-      setShowLoader(true);
-      setLoaderText('Sincronizando mods...');
-      
-      await invoke('sync_mods_from_remote', {
-        localInstanceId: syncingLocalId,
-        remoteInstanceId: remoteId,
-        distributionUrl: distribution.distribution.base_url,
-      });
-      setSyncModsModalOpen(false);
-      setSyncingLocalId(null);
-    } catch (error) {
-      void logger.error('Error syncing mods', error, 'handleSyncModsConfirm');
-      addToast(`Error al sincronizar mods: ${error}`, 'error');
-    } finally {
-      setShowLoader(false);
-      setLoaderText('Iniciando sesión...');
-    }
-  };
-
-  const handleOpenFolder = async (instanceId: string) => {
-    try {
-      await invoke('open_instance_folder', { instanceId });
-    } catch (error) {
-      void logger.error('Error opening folder', error, 'handleOpenFolder');
-      addToast('Error al abrir carpeta de la instancia', 'error');
-    }
-  };
-
-  const handleDownloadMods = (instanceId: string) => {
-    setModrinthInstanceId(instanceId);
-    setModrinthModalOpen(true);
-  };
-
-  const handleCopyFolders = (instanceId: string) => {
-    setCopyFoldersInstanceId(instanceId);
-    setCopyFoldersModalOpen(true);
-  };
-
-  const handleLocalInstanceDeleted = (instanceId: string) => {
-    setLocalInstances(localInstances.filter(li => li.id !== instanceId));
-    if (selectedInstance === instanceId) {
-      setSelectedInstance(null);
-    }
-  };
-
-  useEffect(() => {
-    checkAdminStatus();
-  }, [currentAccount]);
-
-  useEffect(() => {
-    loadLocalInstances();
-  }, [isAdmin]);
-
-  useEffect(() => {
-    let unlisten: (() => void) | undefined;
-    let isUnmounted = false;
-    
-    listen('local-instance-progress', (event: any) => {
-      if (isUnmounted) return;
-      
-      const progress = event.payload;
-      
-      if (progress.stage === 'completed') {
-        addToast(progress.message, 'success');
-        setTimeout(() => {
-          if (!isUnmounted && loadLocalInstancesRef.current) {
-            loadLocalInstancesRef.current();
-          }
-        }, 500);
-      }
-    }).then((fn) => { unlisten = fn; }).catch(() => {});
-    
-    return () => { 
-      isUnmounted = true;
-      if (unlisten) { try { unlisten(); } catch {} } 
-    };
-  }, []);
-
-  useEffect(() => {
-    let unlisten: (() => void) | undefined;
-    
-    listen('mod-sync-progress', (event: any) => {
-      const progress = event.payload;
-      
-      if (progress.stage === 'completed') {
-        addToast(progress.message, 'success');
-      }
-    }).then((fn) => { unlisten = fn; }).catch(() => {});
-    
-    return () => { if (unlisten) { try { unlisten(); } catch {} } };
-  }, []);
 
   const handleLogout = async () => {
     try {
@@ -1031,8 +853,8 @@ function App() {
       }
     } catch (error) {
       void logger.error('Error checking existing session', error, 'checkExistingSession');
-      const savedAccounts = localStorage.getItem('kkk_accounts');
-      const activeAccountId = localStorage.getItem('kkk_active_account');
+      const savedAccounts = localStorage.getItem('valthorne_accounts');
+      const activeAccountId = localStorage.getItem('valthorne_active_account');
 
       if (savedAccounts && activeAccountId) {
         try {
@@ -1135,7 +957,7 @@ function App() {
 
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-black via-[#0a0a0a] to-black flex relative overflow-hidden">
+    <div className="h-screen bg-gradient-to-br from-black via-[#0a0a0a] to-black flex relative overflow-hidden">
       {/* No Access Screen - Full screen overlay */}
       {showNoAccessScreen ? (
         <NoAccessScreen 
@@ -1146,24 +968,16 @@ function App() {
         <>
           {currentAccount && (
                <Sidebar
-                 instances={filteredInstances.length > 0 ? filteredInstances : (distribution?.instances || [])}
-                 localInstances={localInstances}
-                 selectedInstance={selectedInstance}
-                 onInstanceSelect={handleInstanceSelect}
+                 onHomeSelect={handleGoHome}
                  handleSettingsToggle={handleSettingsToggle}
                  handleSkinToggle={handleSkinToggle}
-                 distributionBaseUrl={distribution?.distribution.base_url || ''}
                  currentUser={currentAccount.user}
                  settingsOpen={settingsOpen}
-                 isAdmin={isAdmin}
-                 onCreateLocalInstance={() => setCreateLocalModalOpen(true)}
-                 creatingInstanceId={creatingInstanceId}
-                 onLocalInstanceDeleted={handleLocalInstanceDeleted}
-                 addToast={addToast}
+                 isHome={!selectedInstance && !settingsOpen && !skinViewOpen}
                />
           )}
 
-          <div className={`flex-1 flex flex-col ${currentAccount ? 'ml-20' : ''}`}>
+          <div className={`flex-1 flex flex-col min-h-0 ${currentAccount ? 'ml-20' : ''}`}>
             {accounts.length > 0 && (
               <div className="absolute top-4 right-4 z-50">
                 <UserProfile
@@ -1176,32 +990,34 @@ function App() {
               </div>
             )}
 
-                 <main className={`flex-1 relative transition-all duration-500 ease-out ${isTransitioning ? 'opacity-0 scale-95' : 'opacity-100 scale-100'}`}>
+                 <main className={`flex-1 min-h-0 relative transition-all duration-500 ease-out ${isTransitioning ? 'opacity-0 scale-95' : 'opacity-100 scale-100'}`}>
                   {!currentAccount ? (
                 <div className={`flex items-center justify-center h-full transition-all duration-500 ease-out ${isLoginVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'}`}>
                   <div className="text-center group animate-fade-in-up">
                     <div className={`mb-10 transition-all duration-500 delay-200 ${isLoginVisible ? 'opacity-100 scale-100' : 'opacity-0 scale-95'}`}>
                       <div className="p-12 inline-block">
                         <img
-                          src={kindlyklanLogo}
-                          alt="KindlyKlan"
-                          className="w-48 h-48 mx-auto transition-all duration-500 group-hover:brightness-110 group-hover:contrast-110 group-hover:drop-shadow-[0_0_40px_rgba(0,255,255,0.4)] group-hover:scale-105 select-none"
+                          src={valthorneLogo}
+                          alt="Valthorne"
+                          className="w-48 h-48 mx-auto object-contain transition-all duration-500 group-hover:brightness-110 group-hover:contrast-110 group-hover:drop-shadow-[0_0_40px_rgba(212,175,55,0.4)] group-hover:scale-105 select-none"
                         />
                       </div>
                     </div>
                     <div className={`transition-all duration-500 delay-400 ${isLoginVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
-                <Button
+                <BorderBeam size="sm" colorVariant="sunset" theme="dark" borderRadius={16}>
+                  <Button
                         onClick={handleMicrosoftAuth}
                         disabled={isLoading}
-                        className="relative glass-light hover:bg-white/10 text-white border-2 border-white/20 hover:border-[#00ffff]/50 
-                                 rounded-2xl px-16 py-6 text-2xl font-semibold transition-all duration-300 ease-out 
-                                 shadow-2xl hover:shadow-[0_0_30px_rgba(0,255,255,0.3)] group overflow-hidden min-w-[380px] 
+                        className="relative glass-light hover:bg-white/10 text-white border-2 border-white/20 hover:border-[#d4af37]/50
+                                 rounded-2xl px-16 py-6 text-2xl font-semibold transition-all duration-300 ease-out
+                                 shadow-2xl hover:shadow-[0_0_30px_rgba(212,175,55,0.3)] group overflow-hidden min-w-[380px]
                                  cursor-pointer hover:scale-105 neon-glow-cyan-hover"
                       >
-                        <div className="absolute inset-0 bg-gradient-to-r from-transparent via-[#00ffff]/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+                        <div className="absolute inset-0 bg-gradient-to-r from-transparent via-[#d4af37]/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
                         <img src={microsoftIcon} alt="Microsoft" className="w-8 h-8 mr-3 relative z-10" />
-                        <span className="relative z-10">Iniciar Sesión</span>
-                </Button>
+                        <span className="relative z-10 font-heading tracking-wide">Iniciar Sesión</span>
+                  </Button>
+                </BorderBeam>
               </div>
             </div>
                 </div>
@@ -1219,60 +1035,12 @@ function App() {
                 <div className="flex items-center justify-center h-full">
                   <Loader text="Cargando distribución..." variant="orbital" showReloadAfter={30} />
             </div>
-               ) : showLocalInstancesView ? (
-                 <div className="h-full">
-                   <LocalInstancesView
-                     localInstances={localInstances}
-                     selectedInstance={selectedInstance}
-                     onInstanceSelect={(instanceId) => {
-                       setShowLocalInstancesView(false);
-                       setSelectedInstance(instanceId);
-                       localStorage.setItem(`last_played_${instanceId}`, Date.now().toString());
-                       window.dispatchEvent(new CustomEvent('last_played_updated', { detail: { instanceId } }));
-                     }}
-                     onLocalInstanceDeleted={handleLocalInstanceDeleted}
-                     onOpenFolder={handleOpenFolder}
-                     onInstanceRenamed={() => loadLocalInstances()}
-                     addToast={addToast}
-                   />
-                 </div>
                ) : !selectedInstance ? (
-                   <div className="relative h-full w-full overflow-hidden">
-                     
-                     {/* Background - More subtle gradient */}
-                     <div className="absolute inset-0 z-0">
-                       <div
-                         className="w-full h-full"
-                         style={{
-                           background: 'linear-gradient(135deg, #000000 0%, #0a0a0a 50%, #000000 100%)'
-                         }}
-                       />
-                     </div>
-
-                     {/* Subtle neon accents in background */}
-                     <div className="absolute inset-0 z-5 opacity-10">
-                       <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-[#00ffff] rounded-full blur-3xl"></div>
-                       <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-[#ff00ff] rounded-full blur-3xl"></div>
-                     </div>
-
-                     {/* Overlay */}
-                     <div className="absolute inset-0 bg-black/60 z-10" />
-
-                     {/* Content */}
-                     <div className="relative z-20 h-full flex flex-col">
-                       <div className={`flex-1 flex items-center justify-center p-8 transition-all duration-500 ease-out delay-200 ${logoVisible ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 translate-y-8 scale-95'}`}>
-                         <div className="text-center group animate-scale-in">
-                           <div className="p-16 inline-block">
-                             <img 
-                               src={kindlyklanLogo} 
-                               alt="KindlyKlan" 
-                               className="w-64 h-64 mx-auto transition-all duration-500 group-hover:brightness-110 group-hover:contrast-110 group-hover:drop-shadow-[0_0_50px_rgba(0,255,255,0.5)] group-hover:scale-105"
-                             />
-                           </div>
-                         </div>
-                       </div>
-                     </div>
-                   </div>
+                 <HomeScreen
+                   instanceName={mainInstance?.name || ''}
+                   onPlay={handlePlay}
+                   addToast={addToast}
+                 />
                ) : (
                  <div className="h-full">
                    <InstanceView
@@ -1280,12 +1048,6 @@ function App() {
                      distribution={distribution}
                      distributionBaseUrl={distribution.distribution.base_url}
                      isJavaInstalling={showLoader || isDownloadingAssets}
-                     localInstance={localInstances.find(li => li.id === selectedInstance)}
-                     isLocal={localInstances.some(li => li.id === selectedInstance)}
-                     onSyncMods={handleSyncMods}
-                     onOpenFolder={handleOpenFolder}
-                     onDownloadMods={handleDownloadMods}
-                     onCopyFolders={handleCopyFolders}
                      onLaunch={async (instance) => {
                        if (isDownloadingAssets) {
                          setLoaderText("Descargando assets de instancia...");
@@ -1294,34 +1056,6 @@ function App() {
                        }
                        setShowLoader(true);
 
-                       const isLocalInstance = localInstances.some(li => li.id === selectedInstance);
-                       
-                       if (isLocalInstance) {
-                         try {
-                           const localInst = localInstances.find(li => li.id === selectedInstance);
-                           if (!localInst) throw new Error('Local instance not found');
-
-                           const [minRam, maxRam] = await invoke<[number, number]>('load_ram_config');
-
-                           await invoke('launch_local_instance', {
-                             instanceId: localInst.id,
-                             accessToken: currentAccount.user.access_token,
-                             username: currentAccount.user.username,
-                             uuid: currentAccount.user.uuid,
-                             minRamGb: minRam,
-                             maxRamGb: maxRam,
-                           });
-                           
-                           setShowLoader(false);
-                           setLoaderText("Iniciando sesión...");
-                           addToast('Minecraft iniciado exitosamente', 'success');
-                         } catch (error) {
-                           void logger.error('Error launching local instance', error, 'onLaunch');
-                           addToast(`Error al iniciar instancia: ${error}`, 'error');
-                           setShowLoader(false);
-                           setLoaderText("Iniciando sesión...");
-                         }
-                       } else {
                        await launchInstance(
                          instance,
                          currentAccount,
@@ -1339,7 +1073,6 @@ function App() {
                         distribution?.distribution.base_url,
                         instance.instance_url
                        );
-                       }
                      }}
                    />
           </div>
@@ -1708,123 +1441,6 @@ function App() {
         </div>
       )}
 
-      {/* Modal de creación de instancia local */}
-      <CreateLocalInstanceModal
-        isOpen={createLocalModalOpen}
-        onClose={() => setCreateLocalModalOpen(false)}
-        onInstanceCreated={handleCreateLocalInstance}
-      />
-
-      {/* Modal de sincronización de mods */}
-      {syncModsModalOpen && distribution && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div 
-            className="glass-card rounded-3xl border border-white/10 p-8 max-w-2xl w-full shadow-2xl"
-            style={{
-              background: 'rgba(10, 10, 10, 0.95)',
-              backdropFilter: 'blur(24px)',
-              WebkitBackdropFilter: 'blur(24px)',
-            }}
-          >
-            <h2 className="text-3xl font-bold text-white mb-4">
-              Sincronizar Mods
-            </h2>
-            <p className="text-white/60 mb-6">
-              Selecciona una instancia remota para copiar sus mods a esta instancia local
-            </p>
-
-            <div className="space-y-3 max-h-[400px] overflow-y-auto custom-scrollbar mb-6">
-              {filteredInstances.map((instance) => (
-                <button
-                  key={instance.id}
-                  onClick={() => handleSyncModsConfirm(instance.id)}
-                  className="w-full p-4 rounded-xl bg-white/5 border border-white/10 text-left hover:bg-white/10 hover:border-[#00ffff]/30 transition-all duration-200 group"
-                >
-                  <div className="flex items-center gap-4">
-                    {instance.icon && (
-                      <img
-                        src={`${distribution.distribution.base_url}/${instance.icon}`}
-                        alt={instance.name}
-                        className="w-12 h-12 rounded-lg"
-                      />
-                    )}
-                    <div className="flex-1">
-                      <h3 className="text-white font-bold group-hover:text-[#00ffff] transition-colors">
-                        {instance.name}
-                      </h3>
-                      <p className="text-white/60 text-sm">
-                        Minecraft {instance.minecraft_version} • {instance.version}
-                      </p>
-                    </div>
-                    <svg 
-                      className="w-6 h-6 text-white/40 group-hover:text-[#00ffff] transition-colors" 
-                      fill="none" 
-                      stroke="currentColor" 
-                      viewBox="0 0 24 24"
-                    >
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                    </svg>
-                  </div>
-                </button>
-              ))}
-            </div>
-
-            <div className="flex justify-end">
-              <button
-                onClick={() => {
-                  setSyncModsModalOpen(false);
-                  setSyncingLocalId(null);
-                }}
-                className="px-6 py-3 rounded-xl bg-white/5 border border-white/10 text-white hover:bg-white/10 transition-all duration-200"
-              >
-                Cancelar
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Modrinth Search Modal */}
-      {modrinthModalOpen && modrinthInstanceId && (
-        <ModrinthSearchModal
-          isOpen={modrinthModalOpen}
-          onClose={() => {
-            setModrinthModalOpen(false);
-            setModrinthInstanceId(null);
-          }}
-          instanceId={modrinthInstanceId}
-          minecraftVersion={
-            localInstances.find(li => li.id === modrinthInstanceId)?.minecraft_version || '1.21.1'
-          }
-          loader={
-            localInstances.find(li => li.id === modrinthInstanceId)?.fabric_version 
-              ? 'fabric' 
-              : 'fabric'
-          }
-          onModDownloaded={() => {
-            addToast('Mod descargado correctamente', 'success');
-          }}
-          addToast={addToast}
-        />
-      )}
-
-      {/* Copy Folders Modal */}
-      {copyFoldersModalOpen && copyFoldersInstanceId && (
-        <CopyFoldersModal
-          isOpen={copyFoldersModalOpen}
-          onClose={() => {
-            setCopyFoldersModalOpen(false);
-            setCopyFoldersInstanceId(null);
-          }}
-          targetInstanceId={copyFoldersInstanceId}
-          localInstances={localInstances}
-          remoteInstances={filteredInstances.length > 0 ? filteredInstances : (distribution?.instances || [])}
-          onFoldersCopied={() => {
-            addToast('Carpetas copiadas correctamente', 'success');
-          }}
-          addToast={addToast}
-        />
-      )}
         </>
       )}
     </div>

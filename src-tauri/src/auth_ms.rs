@@ -1,50 +1,3 @@
-use serde::{Serialize, Deserialize};
-use std::collections::HashMap;
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct MicrosoftAuthResponse {
-    pub access_token: String,
-    pub token_type: String,
-    pub expires_in: u64,
-    pub scope: String,
-    pub refresh_token: Option<String>,
-    pub id_token: Option<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct XboxLiveAuthResponse {
-    #[serde(rename = "IssueInstant")]
-    pub issue_instant: String,
-    #[serde(rename = "NotAfter")]
-    pub not_after: String,
-    #[serde(rename = "Token")]
-    pub token: String,
-    #[serde(rename = "DisplayClaims")]
-    pub display_claims: HashMap<String, Vec<HashMap<String, String>>>,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct XstsAuthResponse {
-    #[serde(rename = "IssueInstant")]
-    pub issue_instant: String,
-    #[serde(rename = "NotAfter")]
-    pub not_after: String,
-    #[serde(rename = "Token")]
-    pub token: String,
-    #[serde(rename = "DisplayClaims")]
-    pub display_claims: HashMap<String, Vec<HashMap<String, String>>>,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct MinecraftAuthResponse {
-    pub username: String,
-    pub roles: Vec<String>,
-    pub access_token: String,
-    pub token_type: String,
-    pub expires_in: u64,
-}
-
-
 pub fn extract_auth_code_from_url(url_str: &str) -> Option<String> {
     if let Ok(url) = tauri::Url::parse(url_str) {
         for (key, value) in url.query_pairs() {
@@ -56,67 +9,13 @@ pub fn extract_auth_code_from_url(url_str: &str) -> Option<String> {
     None
 }
 
-pub async fn exchange_auth_code_for_token(auth_code: String, port: u16) -> anyhow::Result<MicrosoftAuthResponse> {
-    let client = reqwest::Client::new();
-    let redirect_uri = format!("http://localhost:{}", port);
-    let params = [
-        ("client_id", crate::AZURE_CLIENT_ID),
-        ("scope", "XboxLive.signin offline_access"),
-        ("code", auth_code.as_str()),
-        ("redirect_uri", redirect_uri.as_str()),
-        ("grant_type", "authorization_code"),
-    ];
-    let response = client
-        .post("https://login.microsoftonline.com/consumers/oauth2/v2.0/token")
-        .form(&params)
-        .send()
-        .await?;
-    if !response.status().is_success() {
-        let error_text = response.text().await.unwrap_or_default();
-        return Err(anyhow::anyhow!("Token exchange failed: {}", error_text));
-    }
-    Ok(response.json::<MicrosoftAuthResponse>().await?)
-}
-
-pub async fn authenticate_xbox_live(access_token: &str) -> anyhow::Result<XboxLiveAuthResponse> {
-    let client = reqwest::Client::new();
-    let payload = serde_json::json!({
-        "Properties": {"AuthMethod": "RPS", "SiteName": "user.auth.xboxlive.com", "RpsTicket": format!("d={}", access_token)},
-        "RelyingParty": "http://auth.xboxlive.com",
-        "TokenType": "JWT"
-    });
-    let response = client.post("https://user.auth.xboxlive.com/user/authenticate").header("Content-Type", "application/json").header("Accept", "application/json").json(&payload).send().await?;
-    if !response.status().is_success() { let error_text = response.text().await.unwrap_or_default(); return Err(anyhow::anyhow!("Xbox Live auth failed: {}", error_text)); }
-    Ok(response.json::<XboxLiveAuthResponse>().await?)
-}
-
-pub async fn authenticate_xsts(xbox_token: &str) -> anyhow::Result<XstsAuthResponse> {
-    let client = reqwest::Client::new();
-    let payload = serde_json::json!({
-        "Properties": {"SandboxId": "RETAIL", "UserTokens": [xbox_token]},
-        "RelyingParty": "rp://api.minecraftservices.com/",
-        "TokenType": "JWT"
-    });
-    let response = client.post("https://xsts.auth.xboxlive.com/xsts/authorize").header("Content-Type", "application/json").header("Accept", "application/json").json(&payload).send().await?;
-    if !response.status().is_success() { let error_text = response.text().await.unwrap_or_default(); return Err(anyhow::anyhow!("XSTS auth failed: {}", error_text)); }
-    Ok(response.json::<XstsAuthResponse>().await?)
-}
-
-pub async fn authenticate_minecraft(xsts_response: &XstsAuthResponse) -> anyhow::Result<MinecraftAuthResponse> {
-    let client = reqwest::Client::new();
-    let user_hash = xsts_response.display_claims.get("xui").and_then(|claims| claims.first()).and_then(|claim| claim.get("uhs")).ok_or_else(|| anyhow::anyhow!("Failed to extract user hash from XSTS response"))?;
-    let identity_token = format!("XBL3.0 x={};{}", user_hash, xsts_response.token);
-    let payload = serde_json::json!({ "identityToken": identity_token });
-    let response = client.post("https://api.minecraftservices.com/authentication/login_with_xbox").header("Content-Type", "application/json").header("Accept", "application/json").json(&payload).send().await?;
-    if !response.status().is_success() { let error_text = response.text().await.unwrap_or_default(); return Err(anyhow::anyhow!("Minecraft auth failed: {}", error_text)); }
-    Ok(response.json::<MinecraftAuthResponse>().await?)
-}
-
 pub async fn get_minecraft_profile_from_token(access_token: &str) -> anyhow::Result<serde_json::Value> {
     let client = reqwest::Client::new();
     let response = client
         .get("https://api.minecraftservices.com/minecraft/profile")
-        .header("Authorization", format!("Bearer {}", access_token))
+        .header("Accept", "application/json")
+        .header("User-Agent", crate::MINECRAFT_SERVICES_USER_AGENT)
+        .bearer_auth(access_token)
         .send()
         .await?;
     if !response.status().is_success() {
@@ -125,102 +24,107 @@ pub async fn get_minecraft_profile_from_token(access_token: &str) -> anyhow::Res
     Ok(response.json::<serde_json::Value>().await?)
 }
 
-pub async fn refresh_ms_token(refresh_token: String) -> anyhow::Result<MicrosoftAuthResponse> {
-    let client = reqwest::Client::new();
-    let params = [
-        ("client_id", crate::AZURE_CLIENT_ID),
-        ("grant_type", "refresh_token"),
-        ("refresh_token", refresh_token.as_str()),
-        ("scope", "XboxLive.signin offline_access"),
-    ];
-    let response = client
-        .post("https://login.microsoftonline.com/consumers/oauth2/v2.0/token")
-        .form(&params)
-        .send()
-        .await?;
-    if !response.status().is_success() {
-        let error_text = response.text().await.unwrap_or_default();
-        return Err(anyhow::anyhow!("Token refresh failed: {}", error_text));
+const LOGIN_WINDOW_LABEL: &str = "ms-login";
+
+/// Opens an embedded webview window pointed at the Microsoft login URL Xbox Live's SISU
+/// endpoint gave us, and waits for it to navigate to [`crate::msa_sisu::AUTH_REPLY_URL`],
+/// extracting the authorization code from that URL instead of letting the (mostly blank)
+/// reply page actually load. Closing the window manually cancels the login.
+///
+/// Window creation itself has to happen on a separate OS thread: doing it directly inside an
+/// async command deadlocks on Windows (see the `tauri::WebviewWindowBuilder::new` docs).
+async fn open_login_window(app: tauri::AppHandle, auth_request_uri: &str) -> Result<String, String> {
+    use tauri::Manager;
+
+    let auth_url: tauri::Url = auth_request_uri
+        .parse()
+        .map_err(|e| format!("Invalid login URL: {}", e))?;
+
+    let (tx, rx) = tokio::sync::oneshot::channel::<Result<String, String>>();
+    let tx = std::sync::Arc::new(std::sync::Mutex::new(Some(tx)));
+
+    let nav_tx = tx.clone();
+    let close_tx = tx.clone();
+    let app_for_window = app.clone();
+
+    std::thread::spawn(move || {
+        let window = tauri::WebviewWindowBuilder::new(&app_for_window, LOGIN_WINDOW_LABEL, tauri::WebviewUrl::External(auth_url))
+            .title("Iniciar sesión con Microsoft")
+            .inner_size(500.0, 650.0)
+            .resizable(true)
+            .center()
+            .on_navigation(move |url| {
+                let url_str = url.as_str();
+                if url_str.starts_with(crate::msa_sisu::AUTH_REPLY_URL) {
+                    if let Some(sender) = nav_tx.lock().unwrap().take() {
+                        let result = extract_auth_code_from_url(url_str)
+                            .ok_or_else(|| "No se encontró el código de autorización en la respuesta de Microsoft".to_string());
+                        let _ = sender.send(result);
+                    }
+                    // Don't actually navigate the embedded window to the (blank) reply page.
+                    return false;
+                }
+                true
+            })
+            .build();
+
+        match window {
+            Ok(win) => {
+                win.on_window_event(move |event| {
+                    if let tauri::WindowEvent::CloseRequested { .. } = event {
+                        if let Some(sender) = close_tx.lock().unwrap().take() {
+                            let _ = sender.send(Err("Inicio de sesión cancelado".to_string()));
+                        }
+                    }
+                });
+            }
+            Err(e) => {
+                if let Some(sender) = close_tx.lock().unwrap().take() {
+                    let _ = sender.send(Err(format!("No se pudo abrir la ventana de inicio de sesión: {}", e)));
+                }
+            }
+        }
+    });
+
+    let result = match tokio::time::timeout(std::time::Duration::from_secs(180), rx).await {
+        Ok(Ok(result)) => result,
+        Ok(Err(_)) => Err("Error interno esperando el inicio de sesión".to_string()),
+        Err(_) => Err("Tiempo de espera agotado para iniciar sesión".to_string()),
+    };
+
+    if let Some(window) = app.get_webview_window(LOGIN_WINDOW_LABEL) {
+        let _ = window.close();
     }
-    Ok(response.json::<MicrosoftAuthResponse>().await?)
+
+    result
 }
 
 #[tauri::command]
-pub async fn start_microsoft_auth() -> Result<crate::AuthSession, String> {
-    use std::sync::{Arc, Mutex};
-    use tauri_plugin_oauth::start_with_config;
-    let captured_url = Arc::new(Mutex::new(None::<String>));
-    let captured_url_clone = captured_url.clone();
-    let config = tauri_plugin_oauth::OauthConfig { ports: None, response: Some("
-    <!DOCTYPE html>
-    <html>
-    
-    <meta charset=\"UTF-8\">
-    <head>
-    <title>Kindly Klan Klient</title>
+pub async fn start_microsoft_auth(app: tauri::AppHandle) -> Result<crate::AuthSession, String> {
+    let sessions = crate::sessions::SessionManager::new(&app)
+        .map_err(|e| format!("Failed to initialize session storage: {}", e))?;
 
-    </head>
-    <body>
-    
-    <h1>Kindly Klan Klient</h1>
-    <p>Has iniciado sesión con Microsoft correctamente.</p>
-    <p>Puedes cerrar esta pestaña y volver al Kliente.</p>
+    let flow = crate::msa_sisu::login_begin(&sessions).await?;
+    let code = open_login_window(app, &flow.auth_request_uri).await?;
+    let result = crate::msa_sisu::login_finish(&code, flow, &sessions).await?;
 
-    </html>".into()) };
-    let port = start_with_config(config, move |url| {
-        let mut captured = captured_url_clone.lock().unwrap();
-        *captured = Some(url);
-    }).map_err(|e| format!("Failed to start OAuth server: {}", e))?;
-    let auth_url = format!(
-        "https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize?client_id={}&response_type=code&redirect_uri=http://localhost:{}&scope=XboxLive.signin%20offline_access&prompt=select_account",
-        crate::AZURE_CLIENT_ID, port
-    );
-    open::that(&auth_url).map_err(|e| format!("Failed to open browser: {}", e))?;
-    let start_time = std::time::Instant::now();
-    let timeout = std::time::Duration::from_secs(180);
-    loop {
-        if let Some(url) = { captured_url.lock().unwrap().clone() } {
-            if let Some(code) = extract_auth_code_from_url(&url) {
-                return complete_microsoft_auth_internal(code, port).await;
-            } else { return Err("No authorization code found in callback URL".into()); }
-        }
-        if start_time.elapsed() > timeout { return Err("Authentication timeout".into()); }
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-    }
-}
-
-pub async fn complete_microsoft_auth_internal(auth_code: String, port: u16) -> Result<crate::AuthSession, String> {
-    let ms_token = exchange_auth_code_for_token(auth_code, port)
-        .await
-        .map_err(|e| format!("Failed to exchange auth code: {}", e))?;
-
-    let xbox_token = authenticate_xbox_live(&ms_token.access_token)
-        .await
-        .map_err(|e| format!("Failed Xbox Live auth: {}", e))?;
-
-    let xsts_token = authenticate_xsts(&xbox_token.token)
-        .await
-        .map_err(|e| format!("Failed XSTS auth: {}", e))?;
-
-    let mc_token = authenticate_minecraft(&xsts_token)
-        .await
-        .map_err(|e| format!("Failed Minecraft auth: {}", e))?;
-
-    let access_token = mc_token.access_token.clone();
-    let profile = crate::get_minecraft_profile_from_token(&access_token)
+    let profile = get_minecraft_profile_from_token(&result.access_token)
         .await
         .map_err(|e| format!("Failed to get profile: {}", e))?;
 
     let username = profile["name"].as_str().unwrap_or("Unknown");
     let uuid = profile["id"].as_str().unwrap_or("unknown");
+    // Mirrors the previous flow: the stored `expires_at` is a generous session validity
+    // window, not the short-lived Minecraft access token's actual expiry (~24h). Real
+    // validity is checked against Mojang directly and refreshed on demand via `refresh_token`.
     let expires_at = (chrono::Utc::now() + chrono::Duration::days(90)).timestamp();
 
     Ok(crate::AuthSession {
-        access_token,
+        access_token: result.access_token,
         username: username.to_string(),
         uuid: uuid.to_string(),
         user_type: "microsoft".to_string(),
         expires_at: Some(expires_at),
-        refresh_token: ms_token.refresh_token.clone(),
+        refresh_token: Some(result.refresh_token),
     })
 }

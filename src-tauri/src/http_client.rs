@@ -6,7 +6,7 @@ use std::time::Duration;
 pub static HTTP_CLIENT: Lazy<Client> = Lazy::new(|| {
     let mut headers = reqwest::header::HeaderMap::new();
     if let Ok(header) = reqwest::header::HeaderValue::from_str(&format!(
-        "KindlyKlanKlient/{} (hola@kindlyklan.com)",
+        "ValthorneClient/{} (contacto@playvalthorne.com)",
         env!("CARGO_PKG_VERSION")
     )) {
         headers.insert(reqwest::header::USER_AGENT, header);

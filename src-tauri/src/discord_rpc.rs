@@ -1,9 +1,9 @@
 use discord_rich_presence::{activity, DiscordIpc, DiscordIpcClient};
 use std::sync::{Arc, Mutex};
 use once_cell::sync::Lazy;
-use std::thread;
-use std::time::Duration;
 
+// TODO: replace with the Client ID of a Discord application owned by Valthorne
+// (this one belongs to KindlyKlan's Discord app and must be regenerated).
 pub const DISCORD_CLIENT_ID: &str = "1167540128986697850";
 
 pub static DISCORD_CLIENT: Lazy<Arc<Mutex<Option<DiscordIpcClient>>>> =
@@ -88,7 +88,7 @@ pub fn update_discord_presence(state: &str, details: &str) -> Result<(), String>
             .assets(
                 activity::Assets::new()
                     .large_image("launcher") 
-                    .large_text("Kindly Klan Klient")
+                    .large_text("Valthorne Client")
             )
             .timestamps(
                 activity::Timestamps::new()
@@ -102,7 +102,7 @@ pub fn update_discord_presence(state: &str, details: &str) -> Result<(), String>
         };
 
         activity = activity.buttons(vec![
-            activity::Button::new("Únete al Discord", "https://discord.kindlyklan.com")
+            activity::Button::new("Únete al Discord", "https://discord.gg/valthorne")
         ]);
 
         match client.set_activity(activity) {
@@ -117,30 +117,6 @@ pub fn update_discord_presence(state: &str, details: &str) -> Result<(), String>
                 let mut connected_guard = IS_CONNECTED.lock().map_err(|e| e.to_string())?;
                 *connected_guard = false;
 
-                Err(error_msg)
-            }
-        }
-    } else {
-        let error_msg = "Discord RPC client not initialized".to_string();
-        log::warn!("{}", error_msg);
-        Err(error_msg)
-    }
-}
-
-pub fn clear_discord_presence() -> Result<(), String> {
-    log::info!("Clearing Discord presence...");
-
-    let mut client_guard = DISCORD_CLIENT.lock().map_err(|e| e.to_string())?;
-
-    if let Some(client) = client_guard.as_mut() {
-        match client.clear_activity() {
-            Ok(_) => {
-                log::info!("Discord presence cleared successfully");
-                Ok(())
-            }
-            Err(e) => {
-                let error_msg = format!("Failed to clear Discord presence: {}", e);
-                log::error!("{}", error_msg);
                 Err(error_msg)
             }
         }

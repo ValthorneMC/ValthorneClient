@@ -77,45 +77,56 @@
 }
 
 .dark {
-  --background: oklch(0.05 0 0);
-  --foreground: oklch(0.984 0.003 247.858);
-  --card: oklch(0.1 0 0);
-  --card-foreground: oklch(0.984 0.003 247.858);
-  --popover: oklch(0.1 0 0);
-  --popover-foreground: oklch(0.984 0.003 247.858);
-  --primary: oklch(0.929 0.013 255.508);
-  --primary-foreground: oklch(0.05 0 0);
-  --secondary: oklch(0.15 0 0);
-  --secondary-foreground: oklch(0.984 0.003 247.858);
-  --muted: oklch(0.15 0 0);
-  --muted-foreground: oklch(0.704 0.04 256.788);
-  --accent: oklch(0.15 0 0);
-  --accent-foreground: oklch(0.984 0.003 247.858);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.551 0.027 264.364);
-  --chart-1: oklch(0.488 0.243 264.376);
-  --chart-2: oklch(0.696 0.17 162.48);
-  --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.265 303.9);
-  --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.1 0 0);
-  --sidebar-foreground: oklch(0.984 0.003 247.858);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.984 0.003 247.858);
-  --sidebar-accent: oklch(0.15 0 0);
-  --sidebar-accent-foreground: oklch(0.984 0.003 247.858);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.551 0.027 264.364);
-  
-  /* Neon colors */
-  --neon-cyan: #00ffff;
-  --neon-cyan-dark: #00d4ff;
-  --neon-cyan-glow: rgba(0, 255, 255, 0.5);
-  --neon-magenta: #ff00ff;
-  --neon-magenta-dark: #ff0080;
-  --neon-magenta-glow: rgba(255, 0, 255, 0.5);
+  /* Valthorne — dark fantasy medieval: piedra/madera oscura + morado de cielo, acento dorado */
+  --background: oklch(0.09 0.015 55);
+  --foreground: oklch(0.94 0.02 80);
+  --card: oklch(0.13 0.02 50);
+  --card-foreground: oklch(0.94 0.02 80);
+  --popover: oklch(0.12 0.02 50);
+  --popover-foreground: oklch(0.94 0.02 80);
+  --primary: oklch(0.78 0.13 85);
+  --primary-foreground: oklch(0.16 0.03 50);
+  --secondary: oklch(0.22 0.025 50);
+  --secondary-foreground: oklch(0.94 0.02 80);
+  --muted: oklch(0.18 0.02 50);
+  --muted-foreground: oklch(0.66 0.03 70);
+  --accent: oklch(0.45 0.13 300);
+  --accent-foreground: oklch(0.96 0.015 80);
+  --destructive: oklch(0.62 0.21 25);
+  --border: oklch(0.7 0.04 60 / 14%);
+  --input: oklch(0.7 0.04 60 / 16%);
+  --ring: oklch(0.55 0.15 300);
+  --chart-1: oklch(0.78 0.13 85);
+  --chart-2: oklch(0.55 0.15 300);
+  --chart-3: oklch(0.6 0.1 40);
+  --chart-4: oklch(0.7 0.12 90);
+  --chart-5: oklch(0.5 0.14 310);
+  --sidebar: oklch(0.1 0.018 50);
+  --sidebar-foreground: oklch(0.94 0.02 80);
+  --sidebar-primary: oklch(0.78 0.13 85);
+  --sidebar-primary-foreground: oklch(0.16 0.03 50);
+  --sidebar-accent: oklch(0.2 0.05 300);
+  --sidebar-accent-foreground: oklch(0.96 0.015 80);
+  --sidebar-border: oklch(0.7 0.04 60 / 14%);
+  --sidebar-ring: oklch(0.55 0.15 300);
+
+  /* Paleta Valthorne (marrón/morado dark fantasy + dorado) */
+  --valthorne-gold: #d4af37;
+  --valthorne-gold-dark: #a8842a;
+  --valthorne-gold-glow: rgba(212, 175, 55, 0.5);
+  --valthorne-purple: #7c4dbd;
+  --valthorne-purple-dark: #5b3690;
+  --valthorne-purple-glow: rgba(124, 77, 189, 0.5);
+  --valthorne-brown: #2a1d14;
+  --valthorne-brown-light: #4a3527;
+
+  /* Alias retrocompatibles (usados por utilidades .neon-glow-*, ver más abajo) */
+  --neon-cyan: var(--valthorne-gold);
+  --neon-cyan-dark: var(--valthorne-gold-dark);
+  --neon-cyan-glow: var(--valthorne-gold-glow);
+  --neon-magenta: var(--valthorne-purple);
+  --neon-magenta-dark: var(--valthorne-purple-dark);
+  --neon-magenta-glow: var(--valthorne-purple-glow);
 }
 
 @layer base {
@@ -448,31 +459,53 @@ body {
   box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
 }
 
-/* Neon glow utilities */
+/* Glow utilities — dorado (antes "cyan") y morado (antes "magenta") de Valthorne */
 .neon-glow-cyan {
-  box-shadow: 0 0 10px rgba(0, 255, 255, 0.5),
-              0 0 20px rgba(0, 255, 255, 0.3),
-              0 0 30px rgba(0, 255, 255, 0.2);
+  box-shadow: 0 0 10px var(--valthorne-gold-glow),
+              0 0 20px var(--valthorne-gold-glow),
+              0 0 30px var(--valthorne-gold-glow);
 }
 
 .neon-glow-magenta {
-  box-shadow: 0 0 10px rgba(255, 0, 255, 0.5),
-              0 0 20px rgba(255, 0, 255, 0.3),
-              0 0 30px rgba(255, 0, 255, 0.2);
+  box-shadow: 0 0 10px var(--valthorne-purple-glow),
+              0 0 20px var(--valthorne-purple-glow),
+              0 0 30px var(--valthorne-purple-glow);
 }
 
 .neon-glow-cyan-hover:hover {
-  box-shadow: 0 0 15px rgba(0, 255, 255, 0.6),
-              0 0 30px rgba(0, 255, 255, 0.4),
-              0 0 45px rgba(0, 255, 255, 0.3);
+  box-shadow: 0 0 15px var(--valthorne-gold-glow),
+              0 0 30px var(--valthorne-gold-glow),
+              0 0 45px var(--valthorne-gold-glow);
   transition: box-shadow 0.3s ease-out;
 }
 
 .neon-glow-magenta-hover:hover {
-  box-shadow: 0 0 15px rgba(255, 0, 255, 0.6),
-              0 0 30px rgba(255, 0, 255, 0.4),
-              0 0 45px rgba(255, 0, 255, 0.3);
+  box-shadow: 0 0 15px var(--valthorne-purple-glow),
+              0 0 30px var(--valthorne-purple-glow),
+              0 0 45px var(--valthorne-purple-glow);
   transition: box-shadow 0.3s ease-out;
+}
+
+/* Selección de tarjetas de skins/capas: reborde sólido dorado (equivalente al "bg-brand" de
+   Modrinth), no solo un glow ambiental - así el estado seleccionado es inequívoco. */
+.valthorne-selected-ring {
+  outline: 3px solid var(--valthorne-gold);
+  outline-offset: -3px;
+  box-shadow: 0 0 14px var(--valthorne-gold-glow);
+}
+
+/* Tipografía medieval de Valthorne */
+.font-display {
+  font-family: "Cinzel Decorative", "Cinzel", serif;
+}
+
+.font-heading {
+  font-family: "Cinzel", serif;
+}
+
+/* Tipografía tipo Minecraft (pixel art) para nombres de usuario/skin */
+.font-minecraft {
+  font-family: "Pixelify Sans", monospace;
 }
 
 /* Smooth animations */
@@ -546,7 +579,7 @@ body {
 /* Custom scrollbar */
 .custom-scrollbar {
   scrollbar-width: thin;
-  scrollbar-color: rgba(6, 182, 212, 0.3) transparent;
+  scrollbar-color: var(--valthorne-purple-glow) transparent;
 }
 
 .custom-scrollbar::-webkit-scrollbar {
@@ -558,10 +591,10 @@ body {
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb {
-  background-color: rgba(6, 182, 212, 0.3);
+  background-color: var(--valthorne-purple-glow);
   border-radius: 3px;
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background-color: rgba(6, 182, 212, 0.5);
+  background-color: var(--valthorne-purple);
 }

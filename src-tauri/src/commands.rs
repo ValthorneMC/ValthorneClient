@@ -1,6 +1,3 @@
-use crate::versions::MinecraftVersion;
-use crate::launcher::MinecraftLauncher;
-use crate::AuthSession;
 use tokio::fs;
 use std::fs::File;
 use std::io::Write;
@@ -9,14 +6,13 @@ use tauri::{AppHandle, State};
 use tauri::Emitter;
 use crate::UpdateState;
 use crate::models::{LauncherConfig, RamConfig, AdvancedConfig};
-use crate::{DistributionManifest, InstanceManifest};
+use crate::DistributionManifest;
 use std::sync::{Arc, Mutex};
 use std::collections::HashMap;
-use crate::models::{ForgeVersion, NeoForgeVersion};
 
-/// Verifica si un archivo debe ignorarse basándose en los patrones de ignorar :)
-/// Los patrones sin '/' solo coinciden con archivos en la raíz.
-/// Los patrones con '/' pueden coincidir con rutas completas.
+/// Checks whether a file should be ignored based on the ignore patterns :)
+/// Patterns without '/' only match files at the root.
+/// Patterns with '/' can match full paths.
 fn should_ignore_config_file(file_path: &str, ignored_patterns: &[String]) -> bool {
     let is_root_file = !file_path.contains('/');
     
@@ -29,10 +25,10 @@ fn should_ignore_config_file(file_path: &str, ignored_patterns: &[String]) -> bo
         } else {
             let has_simple_pattern = ignored_patterns.iter().any(|p| !p.contains('/'));
             if has_simple_pattern {
-                // NO ignorar
+                // Do NOT ignore
                 false
             } else {
-                // No hay patrones simples, solo comparar con la ruta completa
+                // No simple patterns, only compare with the full path
                 false
             }
         }
@@ -40,15 +36,10 @@ fn should_ignore_config_file(file_path: &str, ignored_patterns: &[String]) -> bo
 }
 
 #[tauri::command]
-pub async fn greet(name: String) -> String {
-    format!("Hello, {}! Welcome to Kindly Klan Klient!", name)
-}
-
-#[tauri::command]
 pub async fn create_instance_directory(instance_id: String, java_version: String) -> Result<String, String> {
     let kindly_dir = std::env::var("USERPROFILE")
-        .map(|p| std::path::Path::new(&p).join(".kindlyklanklient"))
-        .unwrap_or_else(|_| std::path::Path::new(".").join(".kindlyklanklient"));
+        .map(|p| std::path::Path::new(&p).join(".valthorneclient"))
+        .unwrap_or_else(|_| std::path::Path::new(".").join(".valthorneclient"));
 
     let instance_dir = kindly_dir.join(&instance_id);
     let runtime_dir = kindly_dir.join("runtime");
@@ -68,50 +59,10 @@ pub async fn get_required_java_version_command(minecraft_version: String) -> Res
 }
 
 #[tauri::command]
-pub async fn get_versions() -> Result<Vec<MinecraftVersion>, String> {
-    let launcher = MinecraftLauncher::new().map_err(|e| e.to_string())?;
-    launcher.get_available_versions().await.map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub async fn launch_game(version: String, session: AuthSession) -> Result<String, String> {
-    let launcher = MinecraftLauncher::new().map_err(|e| e.to_string())?;
-    launcher.config.ensure_directories().await.map_err(|e| e.to_string())?;
-
-    let ram_mb = crate::launcher::get_total_ram_mb().unwrap_or(4096);
-
-    let version_dir = launcher.config.versions_dir.join(&version);
-    let jar_path = version_dir.join(format!("{}.jar", version));
-
-    let versions = launcher.get_available_versions().await.map_err(|e| e.to_string())?;
-
-    if let Some(target_version) = versions.into_iter().find(|v| v.id == version) {
-        let assets_dir = launcher.config.assets_dir.join("objects");
-        let missing_assets = [
-            "5f/5ff04807c356f1beed0b86ccf659b44b9983e3fa",
-            "b3/b3305151c36cc6e776f0130e85e8baee7ea06ec9",
-            "b8/b84572b0d91367c41ff73b22edd5a2e9c02eab13",
-            "40/402ded0eebd448033ef415e861a17513075f80e7",
-            "89/89e4e7c845d442d308a6194488de8bd3397f0791"
-        ];
-
-        let need_download = !jar_path.exists() || missing_assets.iter().any(|asset_path| !assets_dir.join(asset_path).exists());
-        if need_download {
-            launcher.download_version(&target_version).await.map_err(|e| e.to_string())?;
-        }
-    } else {
-        return Err("Version not found".to_string());
-    }
-
-    launcher.launch_minecraft(&version, &session.username, ram_mb, Some(&session.access_token), Some(&session.uuid)).await.map_err(|e| e.to_string())?;
-    Ok("Minecraft launched successfully!".to_string())
-}
-
-#[tauri::command]
 pub async fn check_java_version(version: String) -> Result<String, String> {
     let kindly_dir = std::env::var("USERPROFILE")
-        .map(|p| std::path::Path::new(&p).join(".kindlyklanklient"))
-        .unwrap_or_else(|_| std::path::Path::new(".").join(".kindlyklanklient"));
+        .map(|p| std::path::Path::new(&p).join(".valthorneclient"))
+        .unwrap_or_else(|_| std::path::Path::new(".").join(".valthorneclient"));
     let java_dir = kindly_dir.join("runtime").join(format!("java-{}", version));
     let java_path = if cfg!(target_os = "windows") { java_dir.join("bin").join("java.exe") } else { java_dir.join("bin").join("java") };
     if java_path.exists() { Ok("installed".to_string()) } else { Ok("not_installed".to_string()) }
@@ -127,38 +78,38 @@ pub async fn set_downloading_state(state: State<'_, Arc<Mutex<bool>>>, is_downlo
 
 #[tauri::command]
 pub async fn download_java(version: String, app_handle: AppHandle, state: State<'_, Arc<Mutex<bool>>>) -> Result<String, String> {
-    // Establecer estado de descarga
+    // Set download state
     if let Ok(mut downloading) = state.lock() {
         *downloading = true;
     }
-    
-    // Notificar que comenzó la descarga
+
+    // Notify that the download started
     let _ = app_handle.emit("java-download-started", serde_json::json!({ "version": version }));
     
     let kindly_dir = std::env::var("USERPROFILE")
-        .map(|p| std::path::Path::new(&p).join(".kindlyklanklient"))
-        .unwrap_or_else(|_| std::path::Path::new(".").join(".kindlyklanklient"));
+        .map(|p| std::path::Path::new(&p).join(".valthorneclient"))
+        .unwrap_or_else(|_| std::path::Path::new(".").join(".valthorneclient"));
     let runtime_dir = kindly_dir.join("runtime");
     let java_dir = runtime_dir.join(format!("java-{}", version));
     fs::create_dir_all(&runtime_dir).await.map_err(|e| format!("Failed to create runtime directory: {}", e))?;
     let (os, arch, extension) = if cfg!(target_os = "windows") { ("windows", "x64", "zip") } else if cfg!(target_os = "macos") { ("mac", "x64", "tar.gz") } else { ("linux", "x64", "tar.gz") };
     let jre_url = format!("https://api.adoptium.net/v3/binary/latest/{}/ga/{}/{}/jdk/hotspot/normal/eclipse", version, os, arch);
     
-    // Emitir progreso inicial
+    // Emit initial progress
     let _ = app_handle.emit("java-download-progress", serde_json::json!({
         "percentage": 0,
         "status": "Descargando Java..."
     }));
     
     let client = reqwest::Client::new();
-    let response = client.get(&jre_url).header("User-Agent", "KindlyKlanKlient/1.0").header("Accept", "application/octet-stream").send().await.map_err(|e| format!("Failed to download Java: {}", e))?;
+    let response = client.get(&jre_url).header("User-Agent", "ValthorneClient/1.0").header("Accept", "application/octet-stream").send().await.map_err(|e| format!("Failed to download Java: {}", e))?;
     if !response.status().is_success() { return Err(format!("Download failed with status: {}", response.status())); }
     
-    // Obtener tamaño total si está disponible
+    // Get total size if available
     let total_size = response.content_length().unwrap_or(0);
     let mut downloaded = 0u64;
-    
-    // Emitir progreso durante descarga
+
+    // Emit progress during download
     let _ = app_handle.emit("java-download-progress", serde_json::json!({
         "percentage": 10,
         "status": "Descargando Java..."
@@ -173,7 +124,7 @@ pub async fn download_java(version: String, app_handle: AppHandle, state: State<
                 downloaded += chunk.len() as u64;
                 bytes.extend_from_slice(&chunk);
                 
-                // Actualizar progreso cada 5%
+                // Update progress every 5%
                 if total_size > 0 {
                     let percentage = ((downloaded * 100) / total_size).min(80);
                     let _ = app_handle.emit("java-download-progress", serde_json::json!({
@@ -193,7 +144,7 @@ pub async fn download_java(version: String, app_handle: AppHandle, state: State<
     file.flush().map_err(|e| format!("Failed to flush file: {}", e))?; 
     drop(file);
     
-    // Emitir progreso de extracción
+    // Emit extraction progress
     let _ = app_handle.emit("java-download-progress", serde_json::json!({
         "percentage": 85,
         "status": "Extrayendo Java..."
@@ -213,7 +164,7 @@ pub async fn download_java(version: String, app_handle: AppHandle, state: State<
                 let mut outfile = std::fs::File::create(&outpath).map_err(|e| format!("Create file failed: {}", e))?;
                 std::io::copy(&mut file, &mut outfile).map_err(|e| format!("Write file failed: {}", e))?;
             }
-            // Actualizar progreso de extracción
+            // Update extraction progress
             let extraction_progress = 85 + ((i * 10) / total_files);
             let _ = app_handle.emit("java-download-progress", serde_json::json!({
                 "percentage": extraction_progress,
@@ -225,7 +176,7 @@ pub async fn download_java(version: String, app_handle: AppHandle, state: State<
         { return Err("Unsupported archive format on this OS without external tools".to_string()); }
     }
     
-    // Emitir progreso final
+    // Emit final progress
     let _ = app_handle.emit("java-download-progress", serde_json::json!({
         "percentage": 95,
         "status": "Finalizando instalación..."
@@ -240,24 +191,24 @@ pub async fn download_java(version: String, app_handle: AppHandle, state: State<
     } else { return Err("No Java directory found after extraction".to_string()); }
     let _ = std::fs::remove_file(&temp_file);
     
-    // Emitir progreso completado
+    // Emit completed progress
     let _ = app_handle.emit("java-download-progress", serde_json::json!({
         "percentage": 100,
         "status": "Completado"
     }));
     let _ = app_handle.emit("java-download-completed", serde_json::json!({ "version": version }));
     
-    // Limpiar estado de descarga
+    // Clear download state
     if let Ok(mut downloading) = state.lock() {
         *downloading = false;
     }
-    
+
     Ok(format!("Java {} downloaded and installed successfully", version))
 }
 
 #[tauri::command]
 pub async fn get_java_path(version: String) -> Result<String, String> {
-    let kindly_dir = std::env::var("USERPROFILE").map(|p| std::path::Path::new(&p).join(".kindlyklanklient")).unwrap_or_else(|_| std::path::Path::new(".").join(".kindlyklanklient"));
+    let kindly_dir = std::env::var("USERPROFILE").map(|p| std::path::Path::new(&p).join(".valthorneclient")).unwrap_or_else(|_| std::path::Path::new(".").join(".valthorneclient"));
     let java_dir = kindly_dir.join("runtime").join(format!("java-{}", version));
     let java_path = if cfg!(target_os = "windows") { java_dir.join("bin").join("java.exe") } else { java_dir.join("bin").join("java") };
     if java_path.exists() { Ok(java_path.to_string_lossy().to_string()) } else { Err(format!("Java executable not found at: {}", java_path.display())) }
@@ -270,19 +221,28 @@ pub async fn upload_skin_to_mojang(file_path: String, variant: String, access_to
     if !path.exists() { return Err(format!("File does not exist: {}", file_path)); }
     if path.extension().unwrap_or_default() != "png" { return Err("File must be a PNG image".to_string()); }
     let file_data = fs::read(path).map_err(|e| format!("Failed to read file: {}", e))?;
-    if file_data.len() > 24 * 1024 { return Err("Skin file must be smaller than 24KB".to_string()); }
+
+    // Normalize the texture to the modern 64x64 RGBA format before sending it to Mojang.
+    // This is what actually prevents most of the confusing 400 Bad Request errors: Mojang's
+    // skin endpoint rejects anything that isn't exactly a well-formed 64x64/64x32 skin, and
+    // this also transparently upgrades legacy 64x32 skins the same way the vanilla client does.
+    let normalized_data = crate::skin_texture::normalize_skin_texture(&file_data)?;
+    if normalized_data.len() > 24 * 1024 { return Err("Skin file must be smaller than 24KB".to_string()); }
+
     let client = reqwest::Client::new();
     let form = reqwest::multipart::Form::new()
-        .part("file", reqwest::multipart::Part::bytes(file_data).file_name("skin.png").mime_str("image/png").unwrap())
-        .text("variant", variant);
+        .text("variant", variant)
+        .part("file", reqwest::multipart::Part::bytes(normalized_data).file_name("skin.png").mime_str("image/png").unwrap());
     let response = client.post("https://api.minecraftservices.com/minecraft/profile/skins")
-        .header("Authorization", format!("Bearer {}", access_token))
+        .header("Accept", "application/json")
+        .header("User-Agent", crate::MINECRAFT_SERVICES_USER_AGENT)
+        .bearer_auth(&access_token)
         .multipart(form).send().await.map_err(|e| format!("Failed to upload skin: {}", e))?;
     let status = response.status();
     let response_text = response.text().await.unwrap_or_default();
-    
+
     if !status.is_success() {
-        // Mejorar mensajes de error según el código de estado
+        // Improve error messages based on the status code
         if status.as_u16() == 429 {
             return Err(format!("Rate limit exceeded (429). Mojang API allows 600 requests per 10 minutes. Please wait before trying again."));
         }
@@ -297,25 +257,107 @@ pub async fn upload_skin_to_mojang(file_path: String, variant: String, access_to
     Ok("Skin uploaded successfully".to_string())
 }
 
+// ============================================================================
+// Cape management
+// ============================================================================
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+pub struct CapeInfo {
+    pub id: String,
+    pub state: String,
+    pub url: String,
+    pub alias: String,
+}
+
+#[derive(serde::Deserialize)]
+struct MojangProfileCapesResponse {
+    #[serde(default)]
+    capes: Vec<CapeInfo>,
+}
+
 #[tauri::command]
-pub async fn set_skin_variant(file_path: String, variant: String, access_token: String) -> Result<String, String> {
-    use std::fs;
-    let path = std::path::Path::new(&file_path);
-    if !path.exists() { return Err(format!("File does not exist: {}", file_path)); }
-    if path.extension().unwrap_or_default() != "png" { return Err("File must be a PNG image".to_string()); }
-    let file_data = fs::read(path).map_err(|e| format!("Failed to read file: {}", e))?;
-    if file_data.len() > 24 * 1024 { return Err("Skin file must be smaller than 24KB".to_string()); }
+pub async fn get_player_capes(access_token: String) -> Result<Vec<CapeInfo>, String> {
     let client = reqwest::Client::new();
-    let form = reqwest::multipart::Form::new()
-        .part("file", reqwest::multipart::Part::bytes(file_data).file_name("skin.png").mime_str("image/png").unwrap())
-        .text("variant", variant);
-    let response = client.post("https://api.minecraftservices.com/minecraft/profile/skins")
-        .header("Authorization", format!("Bearer {}", access_token))
-        .multipart(form).send().await.map_err(|e| format!("Failed to upload skin: {}", e))?;
+    let response = client
+        .get("https://api.minecraftservices.com/minecraft/profile")
+        .header("Accept", "application/json")
+        .header("User-Agent", crate::MINECRAFT_SERVICES_USER_AGENT)
+        .bearer_auth(&access_token)
+        .send()
+        .await
+        .map_err(|e| format!("Failed to fetch profile: {}", e))?;
+
     let status = response.status();
     let response_text = response.text().await.unwrap_or_default();
-    if !status.is_success() { return Err(format!("Mojang API error ({}): {}", status, response_text)); }
-    Ok("Skin variant updated".to_string())
+
+    if !status.is_success() {
+        if status.as_u16() == 401 {
+            return Err("Unauthorized (401). Session expired or invalid token.".to_string());
+        }
+        return Err(format!("Mojang API error ({}): {}", status, response_text));
+    }
+
+    let profile: MojangProfileCapesResponse = serde_json::from_str(&response_text)
+        .map_err(|e| format!("Failed to parse profile response: {}", e))?;
+
+    Ok(profile.capes)
+}
+
+#[derive(serde::Serialize)]
+struct SetActiveCapeBody {
+    #[serde(rename = "capeId")]
+    cape_id: String,
+}
+
+#[tauri::command]
+pub async fn set_active_cape(cape_id: String, access_token: String) -> Result<String, String> {
+    let client = reqwest::Client::new();
+    let response = client
+        .put("https://api.minecraftservices.com/minecraft/profile/capes/active")
+        .header("Accept", "application/json")
+        .header("User-Agent", crate::MINECRAFT_SERVICES_USER_AGENT)
+        .bearer_auth(&access_token)
+        .json(&SetActiveCapeBody { cape_id })
+        .send()
+        .await
+        .map_err(|e| format!("Failed to set active cape: {}", e))?;
+
+    let status = response.status();
+    let response_text = response.text().await.unwrap_or_default();
+
+    if !status.is_success() {
+        if status.as_u16() == 401 {
+            return Err("Unauthorized (401). Session expired or invalid token.".to_string());
+        }
+        return Err(format!("Mojang API error ({}): {}", status, response_text));
+    }
+
+    Ok("Cape activated".to_string())
+}
+
+#[tauri::command]
+pub async fn remove_active_cape(access_token: String) -> Result<String, String> {
+    let client = reqwest::Client::new();
+    let response = client
+        .delete("https://api.minecraftservices.com/minecraft/profile/capes/active")
+        .header("Accept", "application/json")
+        .header("User-Agent", crate::MINECRAFT_SERVICES_USER_AGENT)
+        .bearer_auth(&access_token)
+        .send()
+        .await
+        .map_err(|e| format!("Failed to remove active cape: {}", e))?;
+
+    let status = response.status();
+    let response_text = response.text().await.unwrap_or_default();
+
+    if !status.is_success() {
+        if status.as_u16() == 401 {
+            return Err("Unauthorized (401). Session expired or invalid token.".to_string());
+        }
+        return Err(format!("Mojang API error ({}): {}", status, response_text));
+    }
+
+    Ok("Cape removed".to_string())
 }
 
 #[tauri::command]
@@ -335,8 +377,8 @@ use std::fs::File;
 
 fn get_skins_directory() -> std::path::PathBuf {
     std::env::var("USERPROFILE")
-        .map(|p| std::path::Path::new(&p).join(".kindlyklanklient").join("skins"))
-        .unwrap_or_else(|_| std::path::Path::new(".").join(".kindlyklanklient").join("skins"))
+        .map(|p| std::path::Path::new(&p).join(".valthorneclient").join("skins"))
+        .unwrap_or_else(|_| std::path::Path::new(".").join(".valthorneclient").join("skins"))
 }
 
 #[tauri::command]
@@ -447,13 +489,13 @@ pub async fn install_update(app_handle: AppHandle) -> Result<String, String> {
     match updater.check().await {
         Ok(update) => {
             if let Some(update) = update {
-                // Limpiar el estado ANTES de instalar para evitar que se quede en "necesita instalar"
+                // Clear the state BEFORE installing to avoid it getting stuck on "needs install"
                 let mut new_state = load_update_state().await;
                 new_state.downloaded = false;
                 new_state.download_ready = false;
                 new_state.manual_download = false;
-                new_state.available_version = None; // Limpiar también la versión disponible
-                save_update_state(&new_state).await.ok(); // Intentar guardar, pero no fallar si no se puede
+                new_state.available_version = None; // Also clear the available version
+                save_update_state(&new_state).await.ok(); // Try to save, but don't fail if it can't
                 
                 app_handle.emit("update-install-start", ()).unwrap_or_default();
                 update.download_and_install(
@@ -482,47 +524,47 @@ pub async fn install_update(app_handle: AppHandle) -> Result<String, String> {
 
 fn launcher_config_path() -> std::path::PathBuf {
     let base = std::env::var("USERPROFILE")
-        .map(|p| std::path::Path::new(&p).join(".kindlyklanklient"))
-        .unwrap_or_else(|_| std::path::Path::new(".").join(".kindlyklanklient"));
+        .map(|p| std::path::Path::new(&p).join(".valthorneclient"))
+        .unwrap_or_else(|_| std::path::Path::new(".").join(".valthorneclient"));
     base.join("launcher.json")
 }
 
 fn update_state_path() -> std::path::PathBuf {
     let base = std::env::var("USERPROFILE")
-        .map(|p| std::path::Path::new(&p).join(".kindlyklanklient"))
-        .unwrap_or_else(|_| std::path::Path::new(".").join(".kindlyklanklient"));
+        .map(|p| std::path::Path::new(&p).join(".valthorneclient"))
+        .unwrap_or_else(|_| std::path::Path::new(".").join(".valthorneclient"));
     base.join("update_state.json")
 }
 
 async fn load_launcher_config() -> LauncherConfig {
     let path = launcher_config_path();
     
-    // Intentar cargar desde launcher.json
+    // Try to load from launcher.json
     if let Ok(text) = tokio::fs::read_to_string(&path).await {
         if let Ok(mut config) = serde_json::from_str::<LauncherConfig>(&text) {
-            // Asegurar que la versión actual sea correcta
+            // Ensure the current version is correct
             let real_version = env!("CARGO_PKG_VERSION").to_string();
             config.update_state.current_version = real_version;
             return config;
         }
     }
-    
-    // Si no existe, intentar migrar desde archivos antiguos
+
+    // If it doesn't exist, try to migrate from old files
     let mut config = LauncherConfig::default();
-    
-    // Migrar update_state desde update_state.json
+
+    // Migrate update_state from update_state.json
     if let Some(old_state) = read_update_state_file().await {
         config.update_state = old_state;
         let real_version = env!("CARGO_PKG_VERSION").to_string();
         config.update_state.current_version = real_version;
     }
-    
-    // Migrar ram_config desde ram_config.json
+
+    // Migrate ram_config from ram_config.json
     if let Ok((min_ram, max_ram)) = load_ram_config_legacy().await {
         config.ram_config = RamConfig { min_ram, max_ram };
     }
-    
-    // Migrar advanced_config desde advanced_config.json
+
+    // Migrate advanced_config from advanced_config.json
     if let Ok((jvm_args, gc, width, height)) = load_advanced_config_legacy().await {
         config.advanced_config = AdvancedConfig {
             jvm_args,
@@ -531,8 +573,8 @@ async fn load_launcher_config() -> LauncherConfig {
             window_height: height,
         };
     }
-    
-    // Guardar el config unificado
+
+    // Save the unified config
     let _ = save_launcher_config_internal(&config).await;
     
     config
@@ -553,7 +595,7 @@ async fn save_launcher_config_internal(config: &LauncherConfig) -> Result<(), St
 
 async fn load_ram_config_legacy() -> Result<(f64, f64), String> {
     use std::fs;
-    let config_dir = dirs::config_dir().ok_or("Could not find config directory")?.join("KindlyKlanKlient");
+    let config_dir = dirs::config_dir().ok_or("Could not find config directory")?.join("ValthorneClient");
     let config_file = config_dir.join("ram_config.json");
     if !config_file.exists() {
         return Err("File not found".to_string());
@@ -567,7 +609,7 @@ async fn load_ram_config_legacy() -> Result<(f64, f64), String> {
 
 async fn load_advanced_config_legacy() -> Result<(String, String, u32, u32), String> {
     use std::fs;
-    let config_dir = dirs::config_dir().ok_or("Could not find config directory")?.join("KindlyKlanKlient");
+    let config_dir = dirs::config_dir().ok_or("Could not find config directory")?.join("ValthorneClient");
     let config_file = config_dir.join("advanced_config.json");
     if !config_file.exists() {
         return Err("File not found".to_string());
@@ -671,13 +713,13 @@ pub async fn download_instance_assets(
     app_handle: AppHandle,
     state: State<'_, Arc<Mutex<bool>>>
 ) -> Result<String, String> {
-    // Establecer estado de descarga
+    // Set download state
     if let Ok(mut downloading) = state.lock() {
         *downloading = true;
     }
     let base = std::env::var("USERPROFILE")
-        .map(|p| std::path::Path::new(&p).join(".kindlyklanklient"))
-        .unwrap_or_else(|_| std::path::Path::new(".").join(".kindlyklanklient"));
+        .map(|p| std::path::Path::new(&p).join(".valthorneclient"))
+        .unwrap_or_else(|_| std::path::Path::new(".").join(".valthorneclient"));
     let instance_dir = base.join(&instance_id);
     let _ = tokio::fs::create_dir_all(instance_dir.join("libraries")).await;
     let _ = tokio::fs::create_dir_all(instance_dir.join("mods")).await;
@@ -751,10 +793,10 @@ pub async fn download_instance_assets(
             "current_file": "",
             "status": "Instance"
         }));
-        // Cargar historial de manifest anterior
+        // Load previous manifest history
         let previous_history = crate::instances::load_manifest_history(&instance_dir)?;
-        
-        // Obtener patrones de archivos ignorados
+
+        // Get ignored file patterns
         let ignored_patterns = instance.ignored_files.as_ref();
         let empty_vec = Vec::<String>::new();
         let ignored_mods = ignored_patterns.map(|p| &p.mods).unwrap_or(&empty_vec);
@@ -765,14 +807,14 @@ pub async fn download_instance_assets(
         use std::collections::HashSet;
         let mut expected_mods: HashSet<String> = HashSet::new();
         
-        // Preparar directorio de mods
+        // Prepare mods directory
         let mods_dir = instance_dir.join("mods");
-        if let Some(parent) = mods_dir.parent() { 
-            tokio::fs::create_dir_all(parent).await.map_err(|e| e.to_string())?; 
+        if let Some(parent) = mods_dir.parent() {
+            tokio::fs::create_dir_all(parent).await.map_err(|e| e.to_string())?;
         }
         tokio::fs::create_dir_all(&mods_dir).await.map_err(|e| e.to_string())?;
-        
-        // Preparar lista de archivos a descargar en paralelo
+
+        // Prepare list of files to download in parallel
         let mut mods_to_download: Vec<(String, std::path::PathBuf)> = Vec::new();
         for mod_file in &instance.files.mods {
             expected_mods.insert(mod_file.name.clone());
@@ -785,12 +827,12 @@ pub async fn download_instance_assets(
             let target_path = mods_dir.join(&mod_file.name);
             
             if should_ignore {
-                // Archivo ignorado: solo descargar si NO existe (primera vez)
+                // Ignored file: only download if it does NOT exist (first time)
                 if !target_path.exists() {
                     mods_to_download.push((file_url, target_path));
                 }
             } else {
-                // Archivo no ignorado: verificar si necesita descarga
+                // Non-ignored file: check whether it needs downloading
             let mut needs_download = true;
             if target_path.exists() {
                 if !mod_file.sha256.is_empty() {
@@ -811,14 +853,14 @@ pub async fn download_instance_assets(
             }
         }
         
-        // Descargar mods en paralelo
+        // Download mods in parallel
         if !mods_to_download.is_empty() {
             use futures_util::stream::{self, StreamExt};
             let parallel = num_cpus::get().saturating_mul(8).max(50).min(mods_to_download.len());
-            
-            // Cliente HTTP optimizado con pool de conexiones grande
+
+            // HTTP client optimized with a large connection pool
             let client = std::sync::Arc::new(reqwest::Client::builder()
-                .user_agent("KindlyKlanKlient/1.0")
+                .user_agent("ValthorneClient/1.0")
                 .connect_timeout(std::time::Duration::from_secs(5))
                 .timeout(std::time::Duration::from_secs(120))
                 .pool_max_idle_per_host(50)
@@ -852,7 +894,7 @@ pub async fn download_instance_assets(
                     let entry = entry.map_err(|e| e.to_string())?;
                     if entry.file_type().map_err(|e| e.to_string())?.is_file() {
                         let name = entry.file_name().to_string_lossy().to_string();
-                        // Solo borrar si estaba en el historial pero ya no está en el manifest actual
+                        // Only delete if it was in the history but is no longer in the current manifest
                         if history.files.mods.contains(&name) && !expected_mods.contains(&name) {
                             let should_ignore = crate::utils::matches_glob_patterns(&name, ignored_mods);
                             if !should_ignore {
@@ -867,7 +909,7 @@ pub async fn download_instance_assets(
         let mut expected_configs: HashSet<String> = HashSet::new();
         let mut expected_root_files: HashSet<String> = HashSet::new();
         
-        // Preparar lista de configs a descargar en paralelo
+        // Prepare list of configs to download in parallel
         let mut configs_to_download: Vec<(String, std::path::PathBuf)> = Vec::new();
         for config_file in &instance.files.configs {
             let file_url = if config_file.url.starts_with("http") { 
@@ -888,18 +930,18 @@ pub async fn download_instance_assets(
             let should_ignore = should_ignore_config_file(&rel, ignored_configs);
             let target_path = instance_dir.join(&rel);
             
-            // Crear directorio padre si es necesario
-            if let Some(parent) = target_path.parent() { 
-                tokio::fs::create_dir_all(parent).await.map_err(|e| e.to_string())?; 
+            // Create parent directory if needed
+            if let Some(parent) = target_path.parent() {
+                tokio::fs::create_dir_all(parent).await.map_err(|e| e.to_string())?;
             }
-            
+
             if should_ignore {
-                // Archivo ignorado: solo descargar si NO existe (primera vez)
+                // Ignored file: only download if it does NOT exist (first time)
                 if !target_path.exists() {
                     configs_to_download.push((file_url, target_path));
                 }
             } else {
-                // Archivo no ignorado: verificar si necesita descarga
+                // Non-ignored file: check whether it needs downloading
             let mut needs_download = true;
             if target_path.exists() {
                 if !config_file.sha256.is_empty() {
@@ -920,14 +962,14 @@ pub async fn download_instance_assets(
             }
         }
         
-        // Descargar configs en paralelo
+        // Download configs in parallel
         if !configs_to_download.is_empty() {
             use futures_util::stream::{self, StreamExt};
             let parallel = num_cpus::get().saturating_mul(4).max(20).min(configs_to_download.len());
-            
-            // Cliente HTTP optimizado con pool de conexiones grande
+
+            // HTTP client optimized with a large connection pool
             let client = std::sync::Arc::new(reqwest::Client::builder()
-                .user_agent("KindlyKlanKlient/1.0")
+                .user_agent("ValthorneClient/1.0")
                 .connect_timeout(std::time::Duration::from_secs(5))
                 .timeout(std::time::Duration::from_secs(120))
                 .pool_max_idle_per_host(50)
@@ -961,7 +1003,7 @@ pub async fn download_instance_assets(
                     let entry = entry.map_err(|e| e.to_string())?;
                     if entry.file_type().is_file() {
                         let rel_path = entry.path().strip_prefix(&instance_dir).map_err(|e| e.to_string())?.to_string_lossy().replace('\\', "/");
-                        // Solo borrar si estaba en el historial pero ya no está en el manifest actual
+                        // Only delete if it was in the history but is no longer in the current manifest
                         if history.files.configs.contains(&rel_path) && !expected_configs.contains(&rel_path) {
                             let should_ignore = should_ignore_config_file(&rel_path, ignored_configs);
                             if !should_ignore {
@@ -973,18 +1015,18 @@ pub async fn download_instance_assets(
             }
         }
         
-        // Limpiar archivos en la raíz: solo borrar si estaban en el historial pero ya no están en el manifest actual
+        // Clean up root files: only delete if they were in the history but are no longer in the current manifest
         if let Some(history) = &previous_history {
             if let Ok(entries) = std::fs::read_dir(&instance_dir) {
                 for entry in entries.flatten() {
                     let path = entry.path();
                     if path.is_file() {
                         if let Some(file_name) = path.file_name().and_then(|n| n.to_str()) {
-                            // Ignorar archivos del sistema (.manifest_history.json, etc.)
+                            // Ignore system files (.manifest_history.json, etc.)
                             if file_name.starts_with('.') {
                                 continue;
                             }
-                            // Solo procesar archivos que estaban en el historial de root_files
+                            // Only process files that were in the root_files history
                             if history.files.root_files.contains(&file_name.to_string()) && !expected_root_files.contains(file_name) {
                                 let should_ignore = should_ignore_config_file(file_name, ignored_configs);
                                 if !should_ignore {
@@ -997,7 +1039,7 @@ pub async fn download_instance_assets(
             }
         }
         
-        // Limpiar resourcepacks: solo borrar si estaban en el historial pero ya no están en el manifest actual
+        // Clean up resourcepacks: only delete if they were in the history but are no longer in the current manifest
         if let Some(history) = &previous_history {
             let mut expected_resourcepacks: HashSet<String> = HashSet::new();
             if let Some(resourcepacks) = &instance.files.resourcepacks {
@@ -1026,7 +1068,7 @@ pub async fn download_instance_assets(
             }
         }
         
-        // Limpiar shaderpacks: solo borrar si estaban en el historial pero ya no están en el manifest actual
+        // Clean up shaderpacks: only delete if they were in the history but are no longer in the current manifest
         if let Some(history) = &previous_history {
             let mut expected_shaderpacks: HashSet<String> = HashSet::new();
             if let Some(shaderpacks) = &instance.files.shaderpacks {
@@ -1055,7 +1097,7 @@ pub async fn download_instance_assets(
             }
         }
         
-        // Guardar el nuevo historial después de procesar todos los archivos
+        // Save the new history after processing all files
         crate::instances::save_manifest_history(&instance_dir, &instance).await?;
     }
     
@@ -1068,11 +1110,11 @@ pub async fn download_instance_assets(
     }));
     let _ = app_handle.emit("asset-download-completed", serde_json::json!({ "phase": "complete" }));
     
-    // Limpiar estado de descarga
+    // Clear download state
     if let Ok(mut downloading) = state.lock() {
         *downloading = false;
     }
-    
+
     Ok("ok".to_string())
 }
 
@@ -1098,7 +1140,7 @@ pub async fn get_instance_background_video(
     let video_dir = instance_dir.join("assets");
     tokio::fs::create_dir_all(&video_dir).await.map_err(|e| e.to_string())?;
     
-    // Construir nombre del archivo desde la ruta (ej: "instances/thanatophobia2/assets/th2trailer.mp4" -> "th2trailer.mp4")
+    // Build the file name from the path (e.g. "instances/thanatophobia2/assets/th2trailer.mp4" -> "th2trailer.mp4")
     let video_file_name = Path::new(&video_path)
         .file_name()
         .and_then(|n| n.to_str())
@@ -1106,65 +1148,23 @@ pub async fn get_instance_background_video(
     
     let local_video_path = video_dir.join(video_file_name);
     
-    // Si el video no existe localmente, descargarlo
+    // If the video doesn't exist locally, download it
     if !local_video_path.exists() {
-        // Construir URL completa del video
+        // Build the full video URL
         let video_url = if video_path.starts_with("http") {
             video_path
         } else {
             format!("{}/{}", base_url.trim_end_matches('/'), video_path.trim_start_matches('/'))
         };
-        
-        // Descargar el video
+
+        // Download the video
         crate::instances::download_file(&video_url, &local_video_path).await.map_err(|e| e.to_string())?;
     }
-    
-    // Leer el archivo como bytes
+
+    // Read the file as bytes
     let video_bytes = tokio::fs::read(&local_video_path).await.map_err(|e| format!("Failed to read video file: {}", e))?;
     
     Ok(video_bytes)
-}
-
-#[tauri::command]
-pub async fn get_instance_details(base_url: String, instance_url: String) -> Result<InstanceManifest, String> {
-    let full_url = if instance_url.starts_with("http") { instance_url } else { format!("{}/{}", base_url.trim_end_matches('/'), instance_url.trim_start_matches('/')) };
-    let client = reqwest::Client::new();
-    let response = client.get(&full_url).send().await.map_err(|e| format!("Failed to fetch instance details: {}", e))?;
-    if !response.status().is_success() { return Err(format!("HTTP error: {}", response.status())); }
-    let instance: InstanceManifest = response.json().await.map_err(|e| format!("Failed to parse instance JSON: {}", e))?;
-    Ok(instance)
-}
-
-#[tauri::command]
-pub async fn download_instance(
-    base_url: String,
-    instance: InstanceManifest,
-    _session: crate::AuthSession
-) -> Result<String, String> {
-    let launcher = crate::launcher::MinecraftLauncher::new().map_err(|e| e.to_string())?;
-    launcher.config.ensure_directories().await.map_err(|e| e.to_string())?;
-    let instance_dir = launcher.config.versions_dir.join(&instance.instance.id);
-    tokio::fs::create_dir_all(&instance_dir).await.map_err(|e| e.to_string())?;
-    let versions = launcher.get_available_versions().await.map_err(|e| e.to_string())?;
-    if let Some(mc_version) = versions.into_iter().find(|v| v.id == instance.instance.minecraft_version) {
-        launcher.download_version(&mc_version).await.map_err(|e| e.to_string())?;
-    } else {
-        return Err(format!("Minecraft version {} not found", instance.instance.minecraft_version));
-    }
-    if let Some(_mod_loader) = &instance.instance.mod_loader { /* reserved */ }
-    for mod_file in &instance.files.mods {
-        let file_url = if mod_file.url.starts_with("http") { mod_file.url.clone() } else { format!("{}/{}", base_url.trim_end_matches('/'), mod_file.url.trim_start_matches('/')) };
-        let target_path = launcher.config.minecraft_dir.join("instances").join(&instance.instance.id).join("mods").join(&mod_file.name);
-        if let Some(parent) = target_path.parent() { tokio::fs::create_dir_all(parent).await.map_err(|e| e.to_string())?; }
-        crate::instances::download_file(&file_url, &target_path).await.map_err(|e| e.to_string())?;
-    }
-    for config_file in &instance.files.configs {
-        let file_url = if config_file.url.starts_with("http") { config_file.url.clone() } else { format!("{}/{}", base_url.trim_end_matches('/'), config_file.url.trim_start_matches('/')) };
-        let target_path = launcher.config.minecraft_dir.join("instances").join(&instance.instance.id).join(config_file.target.as_ref().unwrap_or(&config_file.path));
-        if let Some(parent) = target_path.parent() { tokio::fs::create_dir_all(parent).await.map_err(|e| e.to_string())?; }
-        crate::instances::download_file(&file_url, &target_path).await.map_err(|e| e.to_string())?;
-    }
-    Ok(format!("Instance {} ready to launch!", instance.instance.name))
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -1180,7 +1180,9 @@ pub async fn get_minecraft_profile_safe(access_token: String) -> Result<ProfileR
     let client = reqwest::Client::new();
     let response = client
         .get("https://api.minecraftservices.com/minecraft/profile")
-        .header("Authorization", format!("Bearer {}", access_token))
+        .header("Accept", "application/json")
+        .header("User-Agent", crate::MINECRAFT_SERVICES_USER_AGENT)
+        .bearer_auth(&access_token)
         .send()
         .await
         .map_err(|e| format!("Failed to send request: {}", e))?;
@@ -1301,229 +1303,16 @@ pub async fn stop_minecraft_instance(
     }
 }
 
-#[tauri::command]
-pub async fn restart_application() -> Result<String, String> {
-    Ok("Application will be restarted".to_string())
-}
-
-// ============================================================================
-// Forge API Commands
-// ============================================================================
-
-#[tauri::command]
-pub async fn get_forge_versions(minecraft_version: String) -> Result<Vec<ForgeVersion>, String> {
-    
-    let client = reqwest::Client::new();
-    
-    let url = "https://maven.minecraftforge.net/net/minecraftforge/forge/maven-metadata.xml";
-    
-    match client.get(url).send().await {
-        Ok(response) => {
-            if response.status().is_success() {
-                let xml_text = response.text().await.map_err(|e| e.to_string())?;
-                
-                // Parsear XML simple para obtener versiones
-                let versions = parse_forge_versions_from_xml(&xml_text, &minecraft_version)?;
-                
-                if versions.is_empty() {
-                    log::warn!("⚠️  No se encontraron versiones de Forge para Minecraft {}", minecraft_version);
-                }
-                
-                Ok(versions)
-            } else {
-                Err(format!("Error HTTP al obtener versiones de Forge: {}", response.status()))
-            }
-        }
-        Err(e) => {
-            log::error!("Error getting Forge versions: {}", e);
-            Err(format!("Error de red: {}", e))
-        }
-    }
-}
-
-#[tauri::command]
-pub async fn get_recommended_forge_version(minecraft_version: String) -> Result<String, String> {
-    
-    let versions = get_forge_versions(minecraft_version.clone()).await?;
-    
-    if let Some(recommended) = versions.iter().find(|v| v.recommended) {
-        return Ok(recommended.version.clone());
-    }
-    
-    if let Some(latest) = versions.first() {
-        return Ok(latest.version.clone());
-    }
-    
-    Err(format!("No se encontró ninguna versión de Forge para Minecraft {}", minecraft_version))
-}
-
-fn parse_forge_versions_from_xml(xml: &str, mc_version: &str) -> Result<Vec<ForgeVersion>, String> {
-    let mut versions = Vec::new();
-    
-    // Buscar todas las versiones que coincidan con la versión de MC
-    for line in xml.lines() {
-        if line.contains("<version>") {
-            if let Some(version_str) = extract_xml_tag_content(line, "version") {
-                // Las versiones de Forge siguen el formato: {mc_version}-{forge_version}
-                // Ej: 1.20.1-47.2.0
-                let mc_prefix = format!("{}-", mc_version);
-                if version_str.starts_with(&mc_prefix) || version_str == mc_version {
-                    versions.push(ForgeVersion {
-                        version: version_str.clone(),
-                        minecraft_version: mc_version.to_string(),
-                        recommended: false,
-                    });
-                }
-            }
-        }
-    }
-    
-    // Marcar la última versión como recomendada
-    if let Some(first) = versions.first_mut() {
-        first.recommended = true;
-    }
-    
-    Ok(versions)
-}
-
-fn extract_xml_tag_content(line: &str, tag: &str) -> Option<String> {
-    let start_tag = format!("<{}>", tag);
-    let end_tag = format!("</{}>", tag);
-    
-    if let Some(start_idx) = line.find(&start_tag) {
-        if let Some(end_idx) = line.find(&end_tag) {
-            let content_start = start_idx + start_tag.len();
-            if content_start < end_idx {
-                return Some(line[content_start..end_idx].trim().to_string());
-            }
-        }
-    }
-    
-    None
-}
-
-// ============================================================================
-// NeoForge API Commands
-// ============================================================================
-
-#[tauri::command]
-pub async fn get_neoforge_versions(minecraft_version: String) -> Result<Vec<NeoForgeVersion>, String> {
-    
-    // NeoForge solo está disponible para Minecraft 1.20.1+
-    let version_parts: Vec<&str> = minecraft_version.split('.').collect();
-    if version_parts.len() >= 2 {
-        let minor = version_parts.get(1).and_then(|v| v.parse::<u32>().ok()).unwrap_or(0);
-        if minor < 20 {
-            return Err("NeoForge solo está disponible para Minecraft 1.20.1 o superior".to_string());
-        }
-    }
-    
-    let client = reqwest::Client::new();
-    
-    // Usar el maven-metadata.xml de NeoForge
-    let url = "https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml";
-    
-    match client.get(url).send().await {
-        Ok(response) => {
-            if response.status().is_success() {
-                let xml_text = response.text().await.map_err(|e| e.to_string())?;
-                
-                let versions = parse_neoforge_versions_from_xml(&xml_text, &minecraft_version)?;
-                
-                if versions.is_empty() {
-                    log::warn!("⚠️  No se encontraron versiones de NeoForge para Minecraft {}", minecraft_version);
-                }
-                
-                Ok(versions)
-            } else {
-                Err(format!("Error HTTP al obtener versiones de NeoForge: {}", response.status()))
-            }
-        }
-        Err(e) => {
-            log::error!("Error getting NeoForge versions: {}", e);
-            Err(format!("Error de red: {}", e))
-        }
-    }
-}
-
-#[tauri::command]
-pub async fn get_recommended_neoforge_version(minecraft_version: String) -> Result<String, String> {
-    
-    let versions = get_neoforge_versions(minecraft_version.clone()).await?;
-    
-    // Devolver la primera (más reciente)
-    if let Some(latest) = versions.first() {
-        return Ok(latest.version.clone());
-    }
-    
-    Err(format!("No se encontró ninguna versión de NeoForge para Minecraft {}", minecraft_version))
-}
-
-fn parse_neoforge_versions_from_xml(xml: &str, mc_version: &str) -> Result<Vec<NeoForgeVersion>, String> {
-    let mut versions = Vec::new();
-    
-    // NeoForge usa formato específico: 20.x.y para MC 1.20.1, 21.0.x para MC 1.21, 21.1.x para MC 1.21.1, etc.
-    // CRITICAL: Mapeo exacto de versiones NeoForge a Minecraft
-    // https://neoforged.net/ - Verificar este mapeo regularmente
-    let mc_parts: Vec<&str> = mc_version.split('.').collect();
-    let mc_minor = mc_parts.get(1).and_then(|v| v.parse::<u32>().ok()).unwrap_or(20);
-    let mc_patch = mc_parts.get(2).and_then(|v| v.parse::<u32>().ok()).unwrap_or(0);
-    
-    for line in xml.lines() {
-        if line.contains("<version>") {
-            if let Some(version_str) = extract_xml_tag_content(line, "version") {
-                // Parse NeoForge version format: major.minor.patch
-                let version_parts: Vec<&str> = version_str.split('.').collect();
-                if version_parts.len() >= 2 {
-                    if let (Ok(nf_major), Ok(nf_minor)) = (
-                        version_parts[0].parse::<u32>(),
-                        version_parts[1].parse::<u32>()
-                    ) {
-                        // Mapeo exacto de NeoForge a Minecraft:
-                        // NeoForge 20.x.y → MC 1.20.1
-                        // NeoForge 21.0.x → MC 1.21
-                        // NeoForge 21.1.x → MC 1.21.1
-                        // NeoForge 21.2.x → MC 1.21.2
-                        // NeoForge 21.3.x → MC 1.21.3
-                        // NeoForge 21.4.x → MC 1.21.4
-                        // etc.
-                        
-                        let matches = if nf_major == 20 && mc_minor == 20 && mc_patch == 1 {
-                            // NeoForge 20.x es solo para MC 1.20.1
-                            true
-                        } else if nf_major == 21 {
-                            // NeoForge 21.x.y mapea a MC 1.21.x donde x = nf_minor
-                            mc_minor == 21 && mc_patch == nf_minor
-                        } else {
-                            // Para versiones futuras, verificar que major coincida con minor de MC
-                            nf_major == mc_minor && mc_patch == nf_minor
-                        };
-                        
-                        if matches {
-                            versions.push(NeoForgeVersion {
-                                version: version_str.clone(),
-                                minecraft_version: mc_version.to_string(),
-                            });
-                        }
-                    }
-                }
-            }
-        }
-    }
-    
-    Ok(versions)
-}
-
 // ==================== FRONTEND LOGGING ====================
 
-/// Obtiene la ruta del archivo de logs del frontend
+/// Gets the frontend log file path
 fn get_frontend_log_path() -> Result<std::path::PathBuf, String> {
     let base = std::env::var("USERPROFILE")
         .or_else(|_| std::env::var("HOME"))
         .map(|p| std::path::PathBuf::from(p))
         .unwrap_or_else(|_| std::path::PathBuf::from("."));
     
-    let log_dir = base.join(".kindlyklanklient").join("logs");
+    let log_dir = base.join(".valthorneclient").join("logs");
     std::fs::create_dir_all(&log_dir)
         .map_err(|e| format!("Failed to create log directory: {}", e))?;
     
@@ -1588,7 +1377,7 @@ pub async fn toggle_devtools(app_handle: tauri::AppHandle) -> Result<(), String>
     let window = app_handle.get_webview_window("main")
         .ok_or_else(|| "Main window not found".to_string())?;
     
-    // Alternar DevTools: abrir si están cerrados, cerrar si están abiertos
+    // Toggle DevTools: open if closed, close if open
     if window.is_devtools_open() {
         window.close_devtools();
     } else {
@@ -1665,650 +1454,6 @@ pub async fn open_backend_log_folder() -> Result<(), String> {
     Ok(())
 }
 
-// ========== Modrinth API Commands ==========
-
-#[tauri::command]
-pub async fn search_modrinth_mods(
-    query: String,
-    minecraft_version: Option<String>,
-    loader: Option<String>,
-    limit: Option<u32>,
-) -> Result<serde_json::Value, String> {
-    let result = crate::modrinth::search_projects(
-        &query,
-        minecraft_version.as_deref(),
-        loader.as_deref(),
-        limit,
-    )
-    .await
-    .map_err(|e| e.to_string())?;
-
-    serde_json::to_value(result).map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub async fn get_modrinth_project_versions(
-    project_id: String,
-    minecraft_version: Option<String>,
-    loader: Option<String>,
-) -> Result<Vec<serde_json::Value>, String> {
-    let versions = crate::modrinth::get_project_versions(
-        &project_id,
-        minecraft_version.as_deref(),
-        loader.as_deref(),
-    )
-    .await
-    .map_err(|e| e.to_string())?;
-
-    let json_versions: Vec<serde_json::Value> = versions
-        .into_iter()
-        .map(|v| serde_json::to_value(v).unwrap())
-        .collect();
-
-    Ok(json_versions)
-}
-
-#[tauri::command]
-pub async fn get_modrinth_version_dependencies(
-    version_id: String,
-) -> Result<serde_json::Value, String> {
-    let deps = crate::modrinth::get_version_dependencies(&version_id)
-        .await
-        .map_err(|e| e.to_string())?;
-
-    serde_json::to_value(deps).map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub async fn download_modrinth_mod(
-    file_url: String,
-    instance_id: String,
-    filename: String,
-    app_handle: tauri::AppHandle,
-) -> Result<String, String> {
-    // Usar función smart que detecta si es instancia local o remota
-    let instance_dir = crate::local_instances::get_instance_directory_smart(&instance_id);
-    let mods_dir = instance_dir.join("mods");
-    
-    // Crear directorio de mods si no existe
-    tokio::fs::create_dir_all(&mods_dir)
-        .await
-        .map_err(|e| format!("Failed to create mods directory: {}", e))?;
-
-    let file_path = mods_dir.join(&filename);
-
-    // Emitir progreso
-    let _ = app_handle.emit("modrinth-download-progress", serde_json::json!({
-        "instance_id": instance_id,
-        "filename": filename,
-        "status": "downloading",
-        "percentage": 0
-    }));
-
-    crate::modrinth::download_mod_file(&file_url, &file_path)
-        .await
-        .map_err(|e| e.to_string())?;
-
-    // Emitir completado
-    let _ = app_handle.emit("modrinth-download-progress", serde_json::json!({
-        "instance_id": instance_id,
-        "filename": filename,
-        "status": "completed",
-        "percentage": 100
-    }));
-
-    Ok(format!("Mod downloaded to: {}", file_path.display()))
-}
-
-#[tauri::command]
-pub async fn download_modrinth_mod_with_dependencies(
-    version_id: String,
-    instance_id: String,
-    minecraft_version: String,
-    loader: String,
-    app_handle: tauri::AppHandle,
-) -> Result<String, String> {
-    log::info!("Downloading mod {} with dependencies for instance {}", version_id, instance_id);
-
-    // Obtener información de la versión directamente por ID
-    let version = crate::modrinth::get_version_by_id(&version_id)
-        .await
-        .map_err(|e| format!("Failed to get version: {}", e))?;
-
-    // Usar función smart que detecta si es instancia local o remota
-    let instance_dir = crate::local_instances::get_instance_directory_smart(&instance_id);
-    let mods_dir = instance_dir.join("mods");
-    
-    tokio::fs::create_dir_all(&mods_dir)
-        .await
-        .map_err(|e| format!("Failed to create mods directory: {}", e))?;
-
-    // Las dependencias ya vienen en el objeto version.dependencies
-    // Solo procesar dependencias requeridas
-    let mut downloaded = std::collections::HashSet::new();
-    let mut dependencies_to_download: Vec<(String, String)> = Vec::new(); // (project_id, version_id)
-
-    // Recopilar dependencias requeridas
-    for dep in &version.dependencies {
-        if dep.dependency_type == "required" {
-            if let Some(project_id) = &dep.project_id {
-                if let Some(dep_version_id) = &dep.version_id {
-                    dependencies_to_download.push((project_id.clone(), dep_version_id.clone()));
-                } else {
-                    match crate::modrinth::get_project_versions(project_id, Some(&minecraft_version), Some(&loader)).await {
-                        Ok(dep_versions) => {
-                            if let Some(latest_dep_version) = dep_versions.first() {
-                                dependencies_to_download.push((project_id.clone(), latest_dep_version.id.clone()));
-                            }
-                        }
-                        Err(e) => {
-                            log::warn!("⚠️  Could not fetch versions for dependency {}: {}", project_id, e);
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    for (_project_id, dep_version_id) in dependencies_to_download {
-        match crate::modrinth::get_version_by_id(&dep_version_id).await {
-            Ok(dep_version) => {
-                let is_compatible = dep_version.game_versions.contains(&minecraft_version)
-                    && dep_version.loaders.contains(&loader);
-
-                if !is_compatible {
-                    continue;
-                }
-
-                if let Some(primary_file) = dep_version.files.iter().find(|f| f.primary) {
-                    let filename = &primary_file.filename;
-                    
-                    if downloaded.contains(filename) {
-                        continue;
-                    }
-
-                    log::info!("⬇️  Downloading dependency: {}", filename);
-                    
-                    let _ = app_handle.emit("modrinth-download-progress", serde_json::json!({
-                        "instance_id": instance_id,
-                        "filename": filename,
-                        "status": "downloading_dependency",
-                        "percentage": 0
-                    }));
-
-                    crate::modrinth::download_mod_file(&primary_file.url, &mods_dir.join(filename))
-                        .await
-                        .map_err(|e| format!("Failed to download dependency {}: {}", filename, e))?;
-
-                    downloaded.insert(filename.clone());
-
-                    let _ = app_handle.emit("modrinth-download-progress", serde_json::json!({
-                        "instance_id": instance_id,
-                        "filename": filename,
-                        "status": "completed_dependency",
-                        "percentage": 100
-                    }));
-                }
-            }
-            Err(e) => {
-                log::warn!("⚠️  Could not fetch dependency version {}: {}", dep_version_id, e);
-            }
-        }
-    }
-
-    if let Some(primary_file) = version.files.iter().find(|f| f.primary) {
-        let filename = &primary_file.filename;
-        
-        
-        let _ = app_handle.emit("modrinth-download-progress", serde_json::json!({
-            "instance_id": instance_id,
-            "filename": filename,
-            "status": "downloading",
-            "percentage": 0
-        }));
-
-        crate::modrinth::download_mod_file(&primary_file.url, &mods_dir.join(filename))
-            .await
-            .map_err(|e| format!("Failed to download mod {}: {}", filename, e))?;
-
-        let _ = app_handle.emit("modrinth-download-progress", serde_json::json!({
-            "instance_id": instance_id,
-            "filename": filename,
-            "status": "completed",
-            "percentage": 100
-        }));
-    }
-
-    Ok(format!("Mod and dependencies downloaded successfully"))
-}
-
-// ========== List installed mods ==========
-
-#[derive(serde::Serialize)]
-pub struct InstalledMod {
-    pub filename: String,
-    pub project_id: Option<String>,
-}
-
-/// Calcular el hash SHA512 de un archivo
-fn calculate_sha512(file_path: &std::path::Path) -> Option<String> {
-    use std::fs::File;
-    use std::io::Read;
-    use sha2::{Digest, Sha512};
-    
-    let mut file = match File::open(file_path) {
-        Ok(f) => f,
-        Err(_) => return None,
-    };
-    
-    let mut hasher = Sha512::new();
-    let mut buffer = vec![0u8; 8192];
-    
-    loop {
-        match file.read(&mut buffer) {
-            Ok(0) => break,
-            Ok(n) => hasher.update(&buffer[..n]),
-            Err(_) => return None,
-        }
-    }
-    
-    let hash = format!("{:x}", hasher.finalize());
-    Some(hash)
-}
-
-/// Leer el project_id de Modrinth desde un archivo JAR
-/// Primero intenta usar el hash SHA512 para buscar en la API de Modrinth
-/// Si falla, intenta leer del manifest
-async fn get_modrinth_project_id(jar_path: &std::path::Path) -> Option<String> {
-    // Método 1: Calcular hash SHA512 y buscar en la API de Modrinth (más preciso)
-    if let Some(sha512) = calculate_sha512(jar_path) {
-        if let Ok(Some(version)) = crate::modrinth::get_version_from_hash(&sha512).await {
-            return Some(version.project_id);
-        }
-    }
-    
-    // Método 2: Leer del manifest del JAR (fallback)
-    read_modrinth_project_id_from_manifest(jar_path)
-}
-
-/// Leer el project_id de Modrinth desde el manifest del JAR
-fn read_modrinth_project_id_from_manifest(jar_path: &std::path::Path) -> Option<String> {
-    use std::fs::File;
-    use std::io::Read;
-    use zip::ZipArchive;
-    
-    let file = match File::open(jar_path) {
-        Ok(f) => f,
-        Err(_) => return None,
-    };
-    
-    let mut archive = match ZipArchive::new(file) {
-        Ok(a) => a,
-        Err(_) => return None,
-    };
-    
-    // 1. Intentar leer del manifest (META-INF/MANIFEST.MF)
-    if let Ok(mut manifest_file) = archive.by_name("META-INF/MANIFEST.MF") {
-        let mut manifest_content = String::new();
-        if manifest_file.read_to_string(&mut manifest_content).is_ok() {
-            // Buscar project_id en el manifest
-            for line in manifest_content.lines() {
-                // Buscar líneas que contengan "Modrinth-Project-ID" o "X-Modrinth-Project-ID"
-                if line.trim().starts_with("Modrinth-Project-ID:") || 
-                   line.trim().starts_with("X-Modrinth-Project-ID:") {
-                    if let Some(colon_pos) = line.find(':') {
-                        let id = line[colon_pos + 1..].trim();
-                        if !id.is_empty() {
-                            return Some(id.to_string());
-                        }
-                    }
-                }
-            }
-        }
-    }
-    
-    // 2. Intentar leer de fabric.mod.json
-    if let Ok(mut mod_json_file) = archive.by_name("fabric.mod.json") {
-        let mut json_content = String::new();
-        if mod_json_file.read_to_string(&mut json_content).is_ok() {
-            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_content) {
-                // Buscar en el campo "modrinth" o "sources"
-                if let Some(modrinth) = json.get("modrinth").or_else(|| json.get("sources")) {
-                    if let Some(project_id) = modrinth.get("projectId")
-                        .or_else(|| modrinth.get("project_id"))
-                        .and_then(|v| v.as_str()) {
-                        return Some(project_id.to_string());
-                    }
-                }
-                // También buscar directamente en el nivel raíz
-                if let Some(project_id) = json.get("modrinth_project_id")
-                    .or_else(|| json.get("modrinthProjectId"))
-                    .and_then(|v| v.as_str()) {
-                    return Some(project_id.to_string());
-                }
-            }
-        }
-    }
-    
-    // 3. Intentar leer de quilt.mod.json
-    if let Ok(mut mod_json_file) = archive.by_name("quilt.mod.json") {
-        let mut json_content = String::new();
-        if mod_json_file.read_to_string(&mut json_content).is_ok() {
-            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&json_content) {
-                // Buscar en el campo "modrinth" o "sources"
-                if let Some(modrinth) = json.get("modrinth").or_else(|| json.get("sources")) {
-                    if let Some(project_id) = modrinth.get("projectId")
-                        .or_else(|| modrinth.get("project_id"))
-                        .and_then(|v| v.as_str()) {
-                        return Some(project_id.to_string());
-                    }
-                }
-                // También buscar directamente en el nivel raíz
-                if let Some(project_id) = json.get("modrinth_project_id")
-                    .or_else(|| json.get("modrinthProjectId"))
-                    .and_then(|v| v.as_str()) {
-                    return Some(project_id.to_string());
-                }
-            }
-        }
-    }
-    
-    // 4. Intentar leer de META-INF/mods.toml (Forge/NeoForge)
-    if let Ok(mut mods_toml_file) = archive.by_name("META-INF/mods.toml") {
-        let mut toml_content = String::new();
-        if mods_toml_file.read_to_string(&mut toml_content).is_ok() {
-            // Buscar project_id en el TOML
-            for line in toml_content.lines() {
-                let trimmed = line.trim();
-                if trimmed.starts_with("modrinthProjectId") || trimmed.starts_with("modrinth_project_id") {
-                    if let Some(equals_pos) = trimmed.find('=') {
-                        let id = trimmed[equals_pos + 1..].trim();
-                        let id = id.trim_matches('"').trim_matches('\'').trim();
-                        if !id.is_empty() {
-                            return Some(id.to_string());
-                        }
-                    }
-                }
-            }
-        }
-    }
-    
-    None
-}
-
-#[tauri::command]
-pub async fn list_installed_mods(instance_id: String) -> Result<Vec<InstalledMod>, String> {
-    let instance_dir = crate::local_instances::get_instance_directory_smart(&instance_id);
-    let mods_dir = instance_dir.join("mods");
-    
-    if !mods_dir.exists() {
-        return Ok(Vec::new());
-    }
-    
-    let mut mod_files = Vec::new();
-    let mut entries = tokio::fs::read_dir(&mods_dir)
-        .await
-        .map_err(|e| format!("Failed to read mods directory: {}", e))?;
-    
-    let mut jar_paths = Vec::new();
-    let mut filenames = Vec::new();
-    
-    while let Some(entry) = entries.next_entry().await
-        .map_err(|e| format!("Failed to read directory entry: {}", e))? {
-        let path = entry.path();
-        
-        if path.is_file() {
-            if let Some(extension) = path.extension() {
-                if extension == "jar" || extension == "JAR" {
-                    if let Some(filename) = path.file_name().and_then(|n| n.to_str()) {
-                        jar_paths.push(path.clone());
-                        filenames.push(filename.to_string());
-                    }
-                }
-            }
-        }
-    }
-    
-    if jar_paths.is_empty() {
-        return Ok(Vec::new());
-    }
-    
-    let mut hashes = Vec::new();
-    let mut hash_to_filename = std::collections::HashMap::new();
-    
-    for (idx, jar_path) in jar_paths.iter().enumerate() {
-        if let Some(sha512) = calculate_sha512(jar_path) {
-            hashes.push(sha512.clone());
-            hash_to_filename.insert(sha512, filenames[idx].clone());
-        }
-    }
-    
-    let mut project_id_map = std::collections::HashMap::new();
-    
-    if !hashes.is_empty() {
-        match crate::modrinth::get_versions_from_hashes(&hashes, "sha512").await {
-            Ok(versions) => {
-                for version in versions {
-                    for file in &version.files {
-                        if let Some(sha512) = &file.hashes.sha512 {
-                            if let Some(filename) = hash_to_filename.get(sha512) {
-                                project_id_map.insert(filename.clone(), version.project_id.clone());
-                            }
-                        }
-                    }
-                }
-            }
-            Err(e) => {
-                log::warn!("Error fetching versions from hashes: {}", e);
-            }
-        }
-    }
-    
-    for (idx, filename) in filenames.iter().enumerate() {
-        let project_id = if let Some(pid) = project_id_map.get(filename) {
-            Some(pid.clone())
-        } else {
-            get_modrinth_project_id(&jar_paths[idx]).await
-        };
-        
-        mod_files.push(InstalledMod {
-            filename: filename.clone(),
-            project_id,
-        });
-    }
-    
-    Ok(mod_files)
-}
-
-// ========== List Minecraft worlds/saves ==========
-
-#[derive(serde::Serialize)]
-pub struct MinecraftWorld {
-    pub name: String,
-    pub path: String,
-    pub icon_path: Option<String>,
-}
-
-#[tauri::command]
-pub async fn list_minecraft_worlds(instance_id: String) -> Result<Vec<MinecraftWorld>, String> {
-    let instance_dir = crate::local_instances::get_instance_directory_smart(&instance_id);
-    let saves_dir = instance_dir.join("saves");
-    
-    if !saves_dir.exists() {
-        return Ok(Vec::new());
-    }
-    
-    let mut worlds = Vec::new();
-    let mut entries = tokio::fs::read_dir(&saves_dir)
-        .await
-        .map_err(|e| format!("Failed to read saves directory: {}", e))?;
-    
-    while let Some(entry) = entries.next_entry().await
-        .map_err(|e| format!("Failed to read directory entry: {}", e))? {
-        let path = entry.path();
-        
-        if path.is_dir() {
-            let world_name = path.file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("Unknown")
-                .to_string();
-            
-            // Buscar icono del mundo (icon.png en la raíz del mundo)
-            let icon_path = path.join("icon.png");
-            let icon = if icon_path.exists() {
-                Some(icon_path.to_string_lossy().to_string())
-            } else {
-                None
-            };
-            
-            // Verificar que es un mundo válido (debe tener level.dat)
-            let level_dat = path.join("level.dat");
-            if level_dat.exists() {
-                worlds.push(MinecraftWorld {
-                    name: world_name,
-                    path: path.to_string_lossy().to_string(),
-                    icon_path: icon,
-                });
-            }
-        }
-    }
-    
-    Ok(worlds)
-}
-
-// ========== Copy folders between instances ==========
-
-#[tauri::command]
-pub async fn copy_instance_folders(
-    source_instance_id: String,
-    target_instance_id: String,
-    folders: Vec<String>,
-    app_handle: tauri::AppHandle,
-) -> Result<String, String> {
-    // Usar función smart que detecta si es instancia local o remota
-    let source_dir = crate::local_instances::get_instance_directory_smart(&source_instance_id);
-    let target_dir = crate::local_instances::get_instance_directory_smart(&target_instance_id);
-
-    if !source_dir.exists() {
-        return Err(format!("Source instance directory does not exist: {}", source_dir.display()));
-    }
-
-    if !target_dir.exists() {
-        return Err(format!("Target instance directory does not exist: {}", target_dir.display()));
-    }
-
-    let mut copied_count = 0;
-
-    for folder in &folders {
-        // Si la carpeta contiene "/", es una subcarpeta (ej: "saves/World1")
-        let (base_folder, subfolder) = if folder.contains('/') {
-            let parts: Vec<&str> = folder.splitn(2, '/').collect();
-            (parts[0], Some(parts[1]))
-        } else {
-            (folder.as_str(), None)
-        };
-        
-        let source_folder = if let Some(sub) = subfolder {
-            source_dir.join(base_folder).join(sub)
-        } else {
-            source_dir.join(base_folder)
-        };
-        
-        let target_folder = if let Some(sub) = subfolder {
-            target_dir.join(base_folder).join(sub)
-        } else {
-            target_dir.join(base_folder)
-        };
-
-        if !source_folder.exists() {
-            log::warn!("Source folder does not exist: {}", source_folder.display());
-            continue;
-        }
-
-        let _ = app_handle.emit("copy-folders-progress", serde_json::json!({
-            "source_instance_id": source_instance_id,
-            "target_instance_id": target_instance_id,
-            "folder": folder,
-            "status": "copying",
-            "percentage": 0
-        }));
-
-        // Copiar carpeta recursivamente
-        if source_folder.is_dir() {
-            // Crear directorio de destino
-            tokio::fs::create_dir_all(&target_folder)
-                .await
-                .map_err(|e| format!("Failed to create target folder: {}", e))?;
-
-            // Copiar archivos
-            copy_directory_recursive(&source_folder, &target_folder)
-                .await
-                .map_err(|e| format!("Failed to copy folder {}: {}", folder, e))?;
-        } else {
-            // Es un archivo, copiarlo directamente
-            if let Some(parent) = target_folder.parent() {
-                tokio::fs::create_dir_all(parent)
-                    .await
-                    .map_err(|e| format!("Failed to create parent directory: {}", e))?;
-            }
-            tokio::fs::copy(&source_folder, &target_folder)
-                .await
-                .map_err(|e| format!("Failed to copy file {}: {}", folder, e))?;
-        }
-
-        copied_count += 1;
-
-        // Emitir completado
-        let _ = app_handle.emit("copy-folders-progress", serde_json::json!({
-            "source_instance_id": source_instance_id,
-            "target_instance_id": target_instance_id,
-            "folder": folder,
-            "status": "completed",
-            "percentage": 100
-        }));
-
-        log::info!("Copied folder: {} -> {}", source_folder.display(), target_folder.display());
-    }
-
-    Ok(format!("Successfully copied {} folder(s)", copied_count))
-}
-
-async fn copy_directory_recursive(
-    source: &std::path::Path,
-    target: &std::path::Path,
-) -> Result<(), String> {
-    copy_directory_recursive_impl(source, target).await
-}
-
-async fn copy_directory_recursive_impl(
-    source: &std::path::Path,
-    target: &std::path::Path,
-) -> Result<(), String> {
-    let mut entries = tokio::fs::read_dir(source)
-        .await
-        .map_err(|e| format!("Failed to read directory: {}", e))?;
-
-    while let Some(entry) = entries.next_entry().await
-        .map_err(|e| format!("Failed to read directory entry: {}", e))? {
-        let path = entry.path();
-        let target_path = target.join(path.file_name().ok_or("Invalid file name")?);
-
-        if path.is_dir() {
-            tokio::fs::create_dir_all(&target_path)
-                .await
-                .map_err(|e| format!("Failed to create directory: {}", e))?;
-            // Usar Box::pin para la recursión async
-            Box::pin(copy_directory_recursive_impl(&path, &target_path)).await?;
-        } else {
-            tokio::fs::copy(&path, &target_path)
-                .await
-                .map_err(|e| format!("Failed to copy file: {}", e))?;
-        }
-    }
-
-    Ok(())
-}
-
 // ========== Discord RPC Commands ==========
 
 #[tauri::command]
@@ -2321,12 +1466,6 @@ pub async fn initialize_discord_rpc() -> Result<String, String> {
 pub async fn update_discord_presence(state: String, details: String) -> Result<String, String> {
     crate::discord_rpc::update_discord_presence(&state, &details)
         .map(|_| "Discord presence updated successfully".to_string())
-}
-
-#[tauri::command]
-pub async fn clear_discord_presence() -> Result<String, String> {
-    crate::discord_rpc::clear_discord_presence()
-        .map(|_| "Discord presence cleared successfully".to_string())
 }
 
 #[tauri::command]
@@ -2344,7 +1483,7 @@ pub async fn is_discord_rpc_enabled() -> Result<bool, String> {
 pub async fn load_discord_rpc_config() -> Result<crate::DiscordRpcConfig, String> {
     let config_path = dirs::config_dir()
         .ok_or("No se pudo obtener el directorio de configuración")?
-        .join("kindlyklanklient")
+        .join("valthorneclient")
         .join("discord_rpc.json");
 
     if config_path.exists() {
@@ -2365,7 +1504,7 @@ pub async fn save_discord_rpc_config(enabled: bool) -> Result<String, String> {
 
     let config_dir = dirs::config_dir()
         .ok_or("No se pudo obtener el directorio de configuración")?
-        .join("kindlyklanklient");
+        .join("valthorneclient");
 
     tokio::fs::create_dir_all(&config_dir)
         .await

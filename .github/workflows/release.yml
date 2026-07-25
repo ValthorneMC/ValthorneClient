@@ -84,7 +84,7 @@ jobs:
           tauriScript: pnpm tauri
           args: ${{ matrix.args }}
           tagName: v${{ steps.version.outputs.value }}
-          releaseName: 'Kindly Klan Klient v${{ steps.version.outputs.value }}'
+          releaseName: 'Valthorne Client v${{ steps.version.outputs.value }}'
           releaseBody: 'Automated release from commit ${{ github.sha }}'
           releaseDraft: false
           prerelease: false

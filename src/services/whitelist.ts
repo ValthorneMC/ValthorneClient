@@ -17,21 +17,6 @@ export class WhitelistService {
     }
   }
 
-  static async getAccessibleInstances(username: string, allInstances: any[]): Promise<any[]> {
-    try {
-      const instanceIds = allInstances.map(instance => instance.id);
-      const accessibleIds = await invoke<string[]>('get_accessible_instances', { 
-        username, 
-        allInstances: instanceIds 
-      });
-
-      return allInstances.filter(instance => accessibleIds.includes(instance.id));
-    } catch (error) {
-      void logger.error('Error getting accessible instances', error, 'WhitelistService');
-      return [];
-    }
-  }
-
   static async clearCache(): Promise<void> {
     try {
       await invoke('clear_whitelist_cache');

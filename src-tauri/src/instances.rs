@@ -9,31 +9,6 @@ use chrono;
  
 use tauri::Emitter;
 
-#[tauri::command]
-pub async fn test_manifest_url(
-    distribution_url: String,
-    instance_id: String
-) -> Result<String, String> {
-    let base_url = crate::build_distribution_url(&distribution_url);
-    let instance_url = format!("{}/instances/{}/instance.json", base_url, instance_id);
-
-    match reqwest::get(&instance_url).await {
-        Ok(response) => {
-            let status = response.status();
-            let text = response.text().await.unwrap_or_else(|_| "Failed to read response".to_string());
-
-            if status.is_success() {
-                Ok(format!("✅ Success ({}): {} bytes\nPreview: {}", status, text.len(), &text[..std::cmp::min(200, text.len())]))
-            } else {
-                Ok(format!("❌ HTTP Error ({}): {}", status, text))
-            }
-        }
-        Err(e) => {
-            Err(format!("❌ Network Error: {}", e))
-        }
-    }
-}
-
 pub async fn load_instance_manifest(distribution_url: &str, instance_id: &str) -> Result<InstanceManifest, String> {
     let base_url = crate::build_distribution_url(distribution_url);
     let instance_url = format!("{}/instances/{}/instance.json", base_url, instance_id);
@@ -149,7 +124,7 @@ pub fn get_local_file_path(instance_dir: &Path, file_path: &str) -> Result<PathB
 
 pub async fn download_file(url: &str, file_path: &Path) -> Result<(), String> {
     let client = reqwest::Client::builder()
-        .user_agent("KindlyKlanKlient/1.0")
+        .user_agent("ValthorneClient/1.0")
         .connect_timeout(std::time::Duration::from_secs(10))
         .timeout(std::time::Duration::from_secs(300))
         .pool_max_idle_per_host(20)
@@ -163,7 +138,7 @@ pub async fn download_file(url: &str, file_path: &Path) -> Result<(), String> {
 pub async fn download_file_with_client(client: &reqwest::Client, url: &str, file_path: &Path) -> Result<(), String> {
     use tokio::io::AsyncWriteExt;
 
-    let mut response = client
+    let response = client
         .get(url)
         .send()
         .await
@@ -179,12 +154,12 @@ pub async fn download_file_with_client(client: &reqwest::Client, url: &str, file
     tokio::fs::create_dir_all(parent_dir).await
         .map_err(|e| format!("Failed to create parent directory {}: {}", parent_dir.display(), e))?;
 
-    let tmp_path = file_path.with_extension("kk.tmp");
+    let tmp_path = file_path.with_extension("vc.tmp");
     let mut tmp_file = tokio::fs::File::create(&tmp_path)
         .await
         .map_err(|e| format!("Failed to create temp file {}: {}", tmp_path.display(), e))?;
 
-    // Download completo de una vez (mucho más rápido que chunked)
+    // Full download at once (much faster than chunked)
     let bytes = response.bytes().await
         .map_err(|e| format!("Failed to read response bytes from {}: {}", url, e))?;
 
@@ -311,7 +286,7 @@ pub async fn save_manifest_history(instance_dir: &Path, instance: &crate::models
         if rel.starts_with("config/config/") { rel = rel.replacen("config/config/", "config/", 1); }
         else if rel.starts_with("config/") { rel = rel.replacen("config/", "config/", 1); }
         
-        // Si está en la raíz, agregarlo a root_files
+        // If it's at the root, add it to root_files
         if !rel.contains('/') {
             history_files.root_files.push(rel.clone());
         }
@@ -407,7 +382,7 @@ pub async fn create_instance_directory_safe(instance_id: &str, _app_handle: &tau
         return Err("Could not determine user home directory".to_string());
     };
 
-    data_dir.push(".kindlyklanklient");
+    data_dir.push(".valthorneclient");
     data_dir.push(instance_id);
 
     tokio::fs::create_dir_all(&data_dir).await
@@ -480,7 +455,7 @@ pub async fn ensure_version_libraries(instance_dir: &Path, mc_version: &str) -> 
     let vj: VersionJson = serde_json::from_str(&version_data).map_err(|e| e.to_string())?;
     let os_name = if cfg!(target_os = "windows") { "windows" } else { "linux" };
 
-    // Preparar lista de libraries para descargar en paralelo
+    // Prepare list of libraries to download in parallel
     let mut libraries_to_download: Vec<(String, std::path::PathBuf)> = Vec::new();
 
     for lib in vj.libraries.iter() {
@@ -498,13 +473,13 @@ pub async fn ensure_version_libraries(instance_dir: &Path, mc_version: &str) -> 
         }
     }
 
-    // Descargar libraries en paralelo
+    // Download libraries in parallel
     if !libraries_to_download.is_empty() {
         use futures_util::stream::{self, StreamExt};
         let parallel = num_cpus::get().saturating_mul(6).max(30).min(libraries_to_download.len());
 
         let client = std::sync::Arc::new(reqwest::Client::builder()
-            .user_agent("KindlyKlanKlient/1.0")
+            .user_agent("ValthorneClient/1.0")
             .connect_timeout(std::time::Duration::from_secs(5))
             .timeout(std::time::Duration::from_secs(120))
             .pool_max_idle_per_host(40)
@@ -535,15 +510,15 @@ pub async fn ensure_version_libraries(instance_dir: &Path, mc_version: &str) -> 
     Ok(())
 }
 
-/// Descarga las bibliotecas del JSON del mod loader (NeoForge/Fabric/Forge)
-/// Esto es CRÍTICO porque mod loaders como Fabric/NeoForge agregan sus propias versiones de bibliotecas
-/// Ejemplo: Fabric usa asm-9.9 en lugar del asm-9.6 de vanilla MC
+/// Downloads the libraries from the mod loader JSON (NeoForge/Fabric/Forge)
+/// This is CRITICAL because mod loaders like Fabric/NeoForge add their own library versions
+/// Example: Fabric uses asm-9.9 instead of vanilla MC's asm-9.6
 pub async fn ensure_mod_loader_libraries(instance_dir: &Path, version_id: &str) -> Result<(), String> {
     let version_dir = instance_dir.join("versions").join(version_id);
     let json_path = version_dir.join(format!("{}.json", version_id));
     
     if !json_path.exists() {
-        // No hay JSON de mod loader, no hacer nada (vanilla)
+        // No mod loader JSON, do nothing (vanilla)
         return Ok(());
     }
     
@@ -557,7 +532,7 @@ pub async fn ensure_mod_loader_libraries(instance_dir: &Path, version_id: &str) 
     let vj: VersionJson = serde_json::from_str(&version_data).map_err(|e| e.to_string())?;
     let os_name = if cfg!(target_os = "windows") { "windows" } else { "linux" };
     
-    // Preparar lista de mod loader libraries para descargar en paralelo
+    // Prepare list of mod loader libraries to download in parallel
     let mut mod_loader_libraries_to_download: Vec<(String, std::path::PathBuf)> = Vec::new();
 
     for lib in vj.libraries.iter() {
@@ -580,13 +555,13 @@ pub async fn ensure_mod_loader_libraries(instance_dir: &Path, version_id: &str) 
         }
     }
 
-    // Descargar mod loader libraries en paralelo
+    // Download mod loader libraries in parallel
     if !mod_loader_libraries_to_download.is_empty() {
         use futures_util::stream::{self, StreamExt};
         let parallel = num_cpus::get().saturating_mul(6).max(30).min(mod_loader_libraries_to_download.len());
 
         let client = std::sync::Arc::new(reqwest::Client::builder()
-            .user_agent("KindlyKlanKlient/1.0")
+            .user_agent("ValthorneClient/1.0")
             .connect_timeout(std::time::Duration::from_secs(5))
             .timeout(std::time::Duration::from_secs(120))
             .pool_max_idle_per_host(40)
@@ -636,7 +611,7 @@ async fn install_fabric(minecraft_version: &str, fabric_version: &str, instance_
         .join(fabric_version)
         .join(format!("fabric-loader-{}.jar", fabric_version));
     if loader_jar.exists() {
-        // Si ya está instalado, buscar el version_id existente
+        // If already installed, find the existing version_id
         return Ok(find_version_id_in_versions_dir(instance_dir, "fabric"));
     }
 
@@ -651,7 +626,7 @@ async fn install_fabric(minecraft_version: &str, fabric_version: &str, instance_
     run_fabric_installer(&installer_path, instance_dir, minecraft_version, fabric_version).await?;
     ensure_minecraft_client_present(instance_dir, minecraft_version).await?;
     
-    // Buscar el version_id creado por el instalador
+    // Find the version_id created by the installer
     Ok(find_version_id_in_versions_dir(instance_dir, "fabric"))
 }
 
@@ -694,7 +669,7 @@ async fn run_forge_installer(installer: &Path, instance_dir: &Path, minecraft_ve
     
     let java_path = crate::launcher::find_or_install_java_for_minecraft(minecraft_version).await?;
     
-    let temp_dir = std::env::temp_dir().join("kindlyklanklient_forge_install");
+    let temp_dir = std::env::temp_dir().join("valthorneclient_forge_install");
     std::fs::create_dir_all(&temp_dir).map_err(|e| format!("Failed to create temp dir: {}", e))?;
     
     let temp_installer = temp_dir.join(installer.file_name().unwrap());
@@ -772,7 +747,7 @@ async fn run_neoforge_installer(installer: &Path, instance_dir: &Path, minecraft
     
     let java_path = crate::launcher::find_or_install_java_for_minecraft(minecraft_version).await?;
     
-    let temp_dir = std::env::temp_dir().join("kindlyklanklient_neoforge_install");
+    let temp_dir = std::env::temp_dir().join("valthorneclient_neoforge_install");
     std::fs::create_dir_all(&temp_dir).map_err(|e| format!("Failed to create temp dir: {}", e))?;
     
     let temp_installer = temp_dir.join(installer.file_name().unwrap());
@@ -827,7 +802,7 @@ pub fn find_version_id_in_versions_dir(instance_dir: &Path, loader_type: &str) -
                 if json_path.exists() {
                     if let Ok(content) = std::fs::read_to_string(&json_path) {
                         if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
-                            // Verificar que sea un mod loader del tipo correcto
+                            // Verify it's a mod loader of the correct type
                             let json_id = json.get("id").and_then(|v| v.as_str()).unwrap_or("");
                             let matches_loader = match loader_type {
                                 "neoforge" => json_id.starts_with("neoforge-") || dir_name_str.starts_with("neoforge-"),
@@ -858,7 +833,7 @@ fn ensure_launcher_profile(instance_dir: &Path) -> Result<(), String> {
         let profile_content = serde_json::json!({
             "profiles": {
                 "default": {
-                    "name": "KindlyKlanKlient",
+                    "name": "ValthorneClient",
                     "type": "custom",
                     "created": chrono::Utc::now().to_rfc3339(),
                     "lastUsed": chrono::Utc::now().to_rfc3339(),
@@ -1037,7 +1012,7 @@ pub async fn ensure_assets_present(app_handle: &tauri::AppHandle, instance_dir: 
     let progress = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
     let total_count = pending.len() as u64;
     let client = std::sync::Arc::new(reqwest::Client::builder()
-        .user_agent("KindlyKlanKlient/1.0")
+        .user_agent("ValthorneClient/1.0")
         .connect_timeout(std::time::Duration::from_secs(20))
         .timeout(std::time::Duration::from_secs(86400))
         .pool_max_idle_per_host(parallel)
@@ -1054,7 +1029,7 @@ pub async fn ensure_assets_present(app_handle: &tauri::AppHandle, instance_dir: 
             let obj_path = objects_dir.join(&prefix).join(&hash);
             let resp = client.get(&url).send().await.map_err(|e| format!("Request failed: {}", e))?;
             if !resp.status().is_success() { return Err(format!("Asset HTTP {} for {}", resp.status(), url)); }
-            let tmp = obj_path.with_extension("kk.tmp");
+            let tmp = obj_path.with_extension("vc.tmp");
             let bytes = resp.bytes().await.map_err(|e| format!("Download failed: {}", e))?;
             tokio::fs::write(&tmp, &bytes).await.map_err(|e| format!("Write failed: {}", e))?;
             tokio::fs::rename(&tmp, &obj_path).await.map_err(|e| format!("Rename failed: {}", e))?;
@@ -1115,9 +1090,9 @@ pub async fn ensure_assets_present_with_progress(
     let parallel = num_cpus::get().saturating_mul(12).max(100);
     use futures_util::stream::{self, StreamExt};
 
-    // Cliente HTTP optimizado con pool de conexiones grande
+    // HTTP client optimized with a large connection pool
     let client = std::sync::Arc::new(reqwest::Client::builder()
-        .user_agent("KindlyKlanKlient/1.0")
+        .user_agent("ValthorneClient/1.0")
         .connect_timeout(std::time::Duration::from_secs(5))
         .timeout(std::time::Duration::from_secs(120))
         .pool_max_idle_per_host(50)

@@ -12,7 +12,7 @@ class FrontendLogger {
   private originalDebug: typeof console.debug;
   
   private constructor() {
-    // Guardar los métodos originales antes de interceptar
+    // Save the original methods before intercepting
     this.originalError = console.error.bind(console);
     this.originalWarn = console.warn.bind(console);
     this.originalLog = console.log.bind(console);
@@ -30,13 +30,13 @@ class FrontendLogger {
   }
   
   /**
-   * Configura los manejadores globales de errores
+   * Sets up the global error handlers
    */
   private setupGlobalErrorHandlers() {
-    // Interceptar console.error, console.warn, console.log, etc.
+    // Intercept console.error, console.warn, console.log, etc.
     this.interceptConsole();
-    
-    // Capturar errores no manejados
+
+    // Capture unhandled errors
     window.addEventListener('error', (event) => {
       const errorObject = event.error ?? { message: event.message };
       void this.error('Unhandled Error', errorObject, 'window.error', {
@@ -47,22 +47,22 @@ class FrontendLogger {
       });
     });
     
-    // Capturar promesas rechazadas
+    // Capture rejected promises
     window.addEventListener('unhandledrejection', (event) => {
       void this.error('Unhandled Promise Rejection', event.reason, 'unhandledrejection', {
         reason: event.reason,
       });
     });
-    
-    // Capturar errores de React (si se usa con un Error Boundary)
-    // El Error Boundary debe llamar a logger.error() manualmente
+
+    // Capture React errors (when used with an Error Boundary)
+    // The Error Boundary must call logger.error() manually
   }
-  
+
   /**
-   * Intercepta los métodos de console para capturar todos los logs
+   * Intercepts the console methods to capture all logs
    */
   private interceptConsole() {
-    // Interceptar console.error
+    // Intercept console.error
     console.error = (...args: any[]) => {
       this.originalError.apply(console, args);
       if (!this.isLogging) {
@@ -70,8 +70,8 @@ class FrontendLogger {
         void this.log('error', message, 'console.error');
       }
     };
-    
-    // Interceptar console.warn
+
+    // Intercept console.warn
     console.warn = (...args: any[]) => {
       this.originalWarn.apply(console, args);
       if (!this.isLogging) {
@@ -79,8 +79,8 @@ class FrontendLogger {
         void this.log('warn', message, 'console.warn');
       }
     };
-    
-    // Interceptar console.log
+
+    // Intercept console.log
     console.log = (...args: any[]) => {
       this.originalLog.apply(console, args);
       if (!this.isLogging) {
@@ -88,8 +88,8 @@ class FrontendLogger {
         void this.log('info', message, 'console.log');
       }
     };
-    
-    // Interceptar console.info
+
+    // Intercept console.info
     console.info = (...args: any[]) => {
       this.originalInfo.apply(console, args);
       if (!this.isLogging) {
@@ -97,8 +97,8 @@ class FrontendLogger {
         void this.log('info', message, 'console.info');
       }
     };
-    
-    // Interceptar console.debug
+
+    // Intercept console.debug
     console.debug = (...args: any[]) => {
       this.originalDebug.apply(console, args);
       if (!this.isLogging) {
@@ -107,9 +107,9 @@ class FrontendLogger {
       }
     };
   }
-  
+
   /**
-   * Formatea los argumentos de console para crear un mensaje legible
+   * Formats the console arguments to create a readable message
    */
   private formatConsoleArgs(args: any[]): string {
     return args.map(arg => {
@@ -127,10 +127,10 @@ class FrontendLogger {
   }
   
   /**
-   * Registra un mensaje en los logs
+   * Logs a message
    */
   private async log(level: LogLevel, message: string, context?: string, data?: any) {
-    // Evitar recursión infinita
+    // Avoid infinite recursion
     if (this.isLogging) {
       return;
     }
@@ -162,21 +162,21 @@ class FrontendLogger {
   }
   
   /**
-   * Registra un mensaje de información
+   * Logs an info message
    */
   async info(message: string, context?: string, data?: any) {
     return this.log('info', message, context, data);
   }
-  
+
   /**
-   * Registra una advertencia
+   * Logs a warning
    */
   async warn(message: string, context?: string, data?: any) {
     return this.log('warn', message, context, data);
   }
-  
+
   /**
-   * Registra un error
+   * Logs an error
    */
   async error(message: string, error?: any, context?: string, extraData?: any) {
     let errorData: Record<string, any> | undefined;
@@ -187,7 +187,7 @@ class FrontendLogger {
         stack: error.stack,
       };
 
-      // Incluir propiedades adicionales del error si existen
+      // Include additional error properties if they exist
       const enumerableProps: Record<string, unknown> = {};
       const errorAny = error as unknown as Record<string, unknown>;
       for (const key of Object.getOwnPropertyNames(error)) {
@@ -214,14 +214,14 @@ class FrontendLogger {
   }
   
   /**
-   * Registra un mensaje de debug
+   * Logs a debug message
    */
   async debug(message: string, context?: string, data?: any) {
     return this.log('debug', message, context, data);
   }
-  
+
   /**
-   * Obtiene todos los logs del frontend
+   * Gets all the frontend logs
    */
   async getLogs(): Promise<string> {
     try {
@@ -233,7 +233,7 @@ class FrontendLogger {
   }
   
   /**
-   * Limpia todos los logs del frontend
+   * Clears all the frontend logs
    */
   async clearLogs(): Promise<void> {
     try {
@@ -244,7 +244,7 @@ class FrontendLogger {
   }
   
   /**
-   * Abre la carpeta de logs en el explorador de archivos
+   * Opens the logs folder in the file explorer
    */
   async openLogFolder(): Promise<void> {
     try {
@@ -255,9 +255,9 @@ class FrontendLogger {
   }
 }
 
-// Exportar instancia singleton
+// Export singleton instance
 export const logger = FrontendLogger.getInstance();
 
-// Exportar también la clase para casos especiales
+// Also export the class for special cases
 export default FrontendLogger;
 

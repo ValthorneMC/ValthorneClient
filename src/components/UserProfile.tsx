@@ -44,8 +44,8 @@ const UserProfile: React.FC<UserProfileProps> = ({
               <div
                 className={`w-8 h-8 rounded-xl border-2 cursor-pointer transition-all duration-300 ease-out select-none overflow-hidden ${
                   account.id === currentAccount?.id
-                    ? 'border-[#00ffff] shadow-lg neon-glow-cyan scale-110'
-                    : 'border-white/20 hover:border-[#00ffff]/50 hover:scale-105'
+                    ? 'border-[#d4af37] shadow-lg neon-glow-cyan scale-110'
+                    : 'border-white/20 hover:border-[#d4af37]/50 hover:scale-105'
                 }`}
                 onClick={() => onSwitchAccount(account)}
               >
@@ -60,7 +60,7 @@ const UserProfile: React.FC<UserProfileProps> = ({
             </Tooltip>
             
             {account.id === currentAccount?.id && (
-              <div className="absolute -bottom-1 -right-1 w-3 h-3 bg-[#00ffff] rounded-full border-2 border-black shadow-lg neon-glow-cyan"></div>
+              <div className="absolute -bottom-1 -right-1 w-3 h-3 bg-[#d4af37] rounded-full border-2 border-black shadow-lg neon-glow-cyan"></div>
             )}
           </div>
         ))}
@@ -72,7 +72,7 @@ const UserProfile: React.FC<UserProfileProps> = ({
           onClick={onAddAccount}
           size="sm"
           variant="ghost"
-          className="w-8 h-8 p-0 text-white/60 hover:text-white glass-light hover:bg-white/10 rounded-xl border border-white/10 hover:border-[#00ffff]/30 cursor-pointer select-none transition-all duration-300 ease-out hover:scale-105"
+          className="w-8 h-8 p-0 text-white/60 hover:text-white glass-light hover:bg-white/10 rounded-xl border border-white/10 hover:border-[#d4af37]/30 cursor-pointer select-none transition-all duration-300 ease-out hover:scale-105"
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -86,7 +86,7 @@ const UserProfile: React.FC<UserProfileProps> = ({
           onClick={() => currentAccount && onLogoutAccount(currentAccount.id)}
           size="sm"
           variant="ghost"
-          className="w-8 h-8 p-0 text-white/60 hover:text-[#ff00ff] glass-light hover:bg-[#ff00ff]/10 rounded-xl border border-white/10 hover:border-[#ff00ff]/30 cursor-pointer select-none transition-all duration-300 ease-out hover:scale-105 neon-glow-magenta-hover"
+          className="w-8 h-8 p-0 text-white/60 hover:text-[#7c4dbd] glass-light hover:bg-[#7c4dbd]/10 rounded-xl border border-white/10 hover:border-[#7c4dbd]/30 cursor-pointer select-none transition-all duration-300 ease-out hover:scale-105 neon-glow-magenta-hover"
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />

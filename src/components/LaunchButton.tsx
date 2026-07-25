@@ -14,7 +14,7 @@ interface LaunchButtonProps {
 
 type LaunchState = 'idle' | 'launching' | 'playing';
 
-// Caché global para estados de lanzamiento por instancia
+// Global cache for launch states per instance
 const launchStateCache = new Map<string, { state: LaunchState; startTime: number }>();
 
 const LaunchButton: React.FC<LaunchButtonProps> = ({
@@ -24,7 +24,7 @@ const LaunchButton: React.FC<LaunchButtonProps> = ({
 	isJavaInstalling = false,
 	instanceId = 'default'
 }) => {
-	// Inicializar con estado en caché si existe
+	// Initialize with cached state if it exists
 	const getInitialState = () => {
 		const cachedState = launchStateCache.get(instanceId);
 		return cachedState?.state || 'idle';
@@ -35,14 +35,14 @@ const LaunchButton: React.FC<LaunchButtonProps> = ({
 	const startTimeRef = useRef<number>(Date.now());
 	const [isHovered, setIsHovered] = useState(false);
 	
-	// Actualizar estado cuando cambia instanceId
+	// Update state when instanceId changes
 	useEffect(() => {
 		const cachedState = launchStateCache.get(instanceId);
 		if (cachedState) {
 			setState(cachedState.state);
 			if (cachedState.state === 'playing' || cachedState.state === 'launching') {
 				startTimeRef.current = cachedState.startTime;
-				// Calcular tiempo transcurrido
+				// Calculate elapsed time
 				const elapsed = Math.floor((Date.now() - cachedState.startTime) / 1000);
 				setPlayTime(elapsed);
 			} else {
@@ -56,7 +56,7 @@ const LaunchButton: React.FC<LaunchButtonProps> = ({
 		}
 	}, [instanceId]);
 
-	// Intervalo para incrementar el tiempo cuando está playing o launching
+	// Interval to increment the time while playing or launching
 	useEffect(() => {
 		let interval: NodeJS.Timeout | null = null;
 		
@@ -88,12 +88,12 @@ const LaunchButton: React.FC<LaunchButtonProps> = ({
 		let unlisten: (() => void) | undefined;
 		listen('minecraft_exited', (event: any) => {
 			const data = event.payload;
-			// Solo procesar si el evento es para esta instancia
+			// Only process if the event is for this instance
 			if (data.instance_id !== instanceId) {
 				return;
 			}
-			
-			// Guardar tiempo total jugado antes de resetear
+
+			// Save total playtime before resetting
 			const cached = launchStateCache.get(instanceId);
 			if (cached && cached.state === 'playing') {
 				const elapsed = Math.floor((Date.now() - cached.startTime) / 1000);
@@ -107,7 +107,7 @@ const LaunchButton: React.FC<LaunchButtonProps> = ({
 			
 			setState('idle');
 			setPlayTime(0);
-			// Limpiar caché cuando el juego termina
+			// Clear cache when the game exits
 			launchStateCache.delete(instanceId);
 			startTimeRef.current = Date.now();
 		}).then((fn) => { unlisten = fn; }).catch(() => {});
@@ -234,9 +234,9 @@ const LaunchButton: React.FC<LaunchButtonProps> = ({
 		const currentCachedState = launchStateCache.get(instanceId);
 		const currentState = currentCachedState?.state || state;
 		if (currentState === 'playing' || currentState === 'launching') {
-			return `${baseClass} bg-gradient-to-r from-[#00ffff]/20 via-[#00d4ff]/20 to-[#00ffff]/20 hover:from-[#00ffff]/30 hover:via-[#00d4ff]/30 hover:to-[#00ffff]/30 neon-glow-cyan`;
+			return `${baseClass} font-heading bg-gradient-to-r from-[#d4af37]/20 via-[#e0c15a]/20 to-[#d4af37]/20 hover:from-[#d4af37]/30 hover:via-[#e0c15a]/30 hover:to-[#d4af37]/30 neon-glow-cyan`;
 		}
-		return `${baseClass} bg-gradient-to-r from-[#00ffff]/10 via-[#ff00ff]/10 to-[#00ffff]/10 hover:from-[#00ffff]/20 hover:via-[#ff00ff]/20 hover:to-[#00ffff]/20 neon-glow-cyan-hover`;
+		return `${baseClass} font-heading bg-gradient-to-r from-[#d4af37]/10 via-[#7c4dbd]/10 to-[#d4af37]/10 hover:from-[#d4af37]/20 hover:via-[#7c4dbd]/20 hover:to-[#d4af37]/20 neon-glow-cyan-hover`;
 	};
 
 	const getButtonStyle = (isHovered: boolean = false) => {
@@ -249,7 +249,7 @@ const LaunchButton: React.FC<LaunchButtonProps> = ({
 				WebkitBackdropFilter: 'blur(24px)',
 				boxShadow: '0 8px 32px 0 rgba(0, 0, 0, 0.7)',
 				border: '1px solid',
-				borderColor: isHovered ? 'rgba(0, 255, 255, 0.8)' : 'rgba(0, 255, 255, 0.5)',
+				borderColor: isHovered ? 'rgba(212, 175, 55, 0.8)' : 'rgba(212, 175, 55, 0.5)',
 				transition: 'all 0.5s cubic-bezier(0.4, 0, 0.2, 1)'
 			};
 		}
@@ -259,7 +259,7 @@ const LaunchButton: React.FC<LaunchButtonProps> = ({
 			WebkitBackdropFilter: 'blur(24px)',
 			boxShadow: '0 8px 32px 0 rgba(0, 0, 0, 0.7)',
 			border: '1px solid',
-			borderColor: isHovered ? 'rgba(0, 255, 255, 0.7)' : 'rgba(0, 255, 255, 0.4)',
+			borderColor: isHovered ? 'rgba(212, 175, 55, 0.7)' : 'rgba(212, 175, 55, 0.4)',
 			transition: 'all 0.5s cubic-bezier(0.4, 0, 0.2, 1)'
 		};
 	};

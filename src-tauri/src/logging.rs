@@ -32,7 +32,7 @@ impl Logger {
         let mut log_dir = dirs::data_dir()
             .ok_or("No data directory found")?;
         
-        log_dir.push("KindlyKlanKlient");
+        log_dir.push("ValthorneClient");
         log_dir.push("logs");
         
         Ok(log_dir)

@@ -1,13 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import LaunchButton from './LaunchButton';
-import type { LocalInstance } from '@/types/local-instances';
 import { logger } from '@/utils/logger';
 
 
 import minecraftIcon from '@/assets/icons/minecraft.svg';
 import { modLoaderIconInvertFilter, modLoaderIconSrc } from '@/utils/modLoaderIcon';
-import Tooltip from './ui/Tooltip';
 
 interface DistributionManifest {
   distribution: {
@@ -41,15 +39,9 @@ interface InstanceViewProps {
   distributionBaseUrl: string;
   onLaunch: (instance: any) => Promise<void>;
   isJavaInstalling?: boolean;
-  localInstance?: LocalInstance | null;
-  isLocal?: boolean;
-  onSyncMods?: (localId: string) => void;
-  onOpenFolder?: (localId: string) => void;
-  onDownloadMods?: (localId: string) => void;
-  onCopyFolders?: (localId: string) => void;
 }
 
-// Caché global para videos por instancia
+// Global cache for videos per instance
 const videoCache = new Map<string, { blobUrl: string; loaded: boolean }>();
 
 const InstanceView: React.FC<InstanceViewProps> = ({
@@ -58,37 +50,13 @@ const InstanceView: React.FC<InstanceViewProps> = ({
   distributionBaseUrl,
   onLaunch,
   isJavaInstalling = false,
-  localInstance = null,
-  isLocal = false,
-  onSyncMods,
-  onOpenFolder,
-  onDownloadMods,
-  onCopyFolders,
 }) => {
   const [isVisible, setIsVisible] = useState(false);
   const [localVideoPath, setLocalVideoPath] = useState<string | null>(null);
   const [videoLoaded, setVideoLoaded] = useState(false);
   const [showTitle, setShowTitle] = useState(true);
-  
-  // If it's a local instance, use localInstance data, otherwise find in distribution
-  const instance = isLocal && localInstance 
-    ? {
-        id: localInstance.id,
-        name: localInstance.name,
-        description: `Instancia local`,
-        version: "local",
-        minecraft_version: localInstance.minecraft_version,
-        icon: null,
-        background: localInstance.background || null,
-        background_video: null,
-        last_updated: localInstance.created_at,
-        instance_url: "",
-        mod_loader: localInstance.mod_loader ?? {
-          type: 'fabric',
-          version: localInstance.fabric_version,
-        }
-      }
-    : distribution.instances.find(inst => inst.id === instanceId);
+
+  const instance = distribution.instances.find(inst => inst.id === instanceId);
 
   // Animate on instance change
   useEffect(() => {
@@ -99,25 +67,25 @@ const InstanceView: React.FC<InstanceViewProps> = ({
     }
   }, [instanceId]);
 
-  // Descargar video cuando hay background_video disponible
+  // Download video when background_video is available
   useEffect(() => {
     const cacheKey = `${instanceId}-${instance?.background_video}`;
     const cached = videoCache.get(cacheKey);
-    
-    // Si tenemos el video en caché, usarlo directamente
+
+    // If we have the video cached, use it directly
     if (cached) {
       setLocalVideoPath(cached.blobUrl);
       setVideoLoaded(cached.loaded);
-      setShowTitle(!cached.loaded); // Solo mostrar título si no estaba cargado
+      setShowTitle(!cached.loaded); // Only show the title if it wasn't loaded
       return;
     }
-    
-    // Si no hay caché, resetear estados solo si cambió la instancia
+
+    // If there's no cache, reset states only if the instance changed
     if (!cached) {
       setVideoLoaded(false);
       setShowTitle(true);
     }
-    
+
     if (instance?.background_video && instanceId && distributionBaseUrl) {
       invoke<number[]>('get_instance_background_video', {
         baseUrl: distributionBaseUrl,
@@ -125,12 +93,12 @@ const InstanceView: React.FC<InstanceViewProps> = ({
         videoPath: instance.background_video
       })
         .then((videoBytes) => {
-          // Convertir bytes a Uint8Array y crear un Blob URL
+          // Convert bytes to Uint8Array and create a Blob URL
           const uint8Array = new Uint8Array(videoBytes);
           const blob = new Blob([uint8Array], { type: 'video/mp4' });
           const blobUrl = URL.createObjectURL(blob);
           setLocalVideoPath(blobUrl);
-          // Guardar en caché sin marcar como cargado aún (se marcará cuando el video se cargue)
+          // Save to cache without marking as loaded yet (will be marked when the video loads)
           videoCache.set(cacheKey, { blobUrl, loaded: false });
         })
         .catch((error) => {
@@ -142,7 +110,7 @@ const InstanceView: React.FC<InstanceViewProps> = ({
     }
   }, [instance?.background_video, instanceId, distributionBaseUrl]);
 
-  // Desvanecer el título cuando el video esté cargado
+  // Fade out the title when the video is loaded
   useEffect(() => {
     if (videoLoaded) {
       const timer = setTimeout(() => {
@@ -193,7 +161,7 @@ const InstanceView: React.FC<InstanceViewProps> = ({
             }}
             onLoadedData={() => {
               setVideoLoaded(true);
-              // Actualizar caché cuando el video se carga
+              // Update cache when the video loads
               const cacheKey = `${instanceId}-${instance?.background_video}`;
               if (videoCache.has(cacheKey)) {
                 videoCache.set(cacheKey, { blobUrl: localVideoPath, loaded: true });
@@ -211,10 +179,10 @@ const InstanceView: React.FC<InstanceViewProps> = ({
                 background: 'linear-gradient(135deg, #000000 0%, #0a0a0a 50%, #000000 100%)'
               }}
             />
-            {/* Subtle neon accents in background */}
+            {/* Subtle Valthorne mist accents in background */}
             <div className="absolute inset-0 z-5 opacity-10">
-              <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-[#00ffff] rounded-full blur-3xl"></div>
-              <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-[#ff00ff] rounded-full blur-3xl"></div>
+              <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-[#d4af37] rounded-full blur-3xl"></div>
+              <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-[#7c4dbd] rounded-full blur-3xl"></div>
             </div>
           </>
         )}
@@ -232,7 +200,7 @@ const InstanceView: React.FC<InstanceViewProps> = ({
             fontFamily: '"Bebas Neue", cursive, sans-serif'
           }}
         >
-          <h1 className="text-6xl md:text-8xl font-bold text-white drop-shadow-2xl tracking-wider">
+          <h1 className="font-display text-6xl md:text-8xl font-bold text-white drop-shadow-2xl tracking-wider">
             {instance.name}
           </h1>
         </div>
@@ -325,108 +293,15 @@ const InstanceView: React.FC<InstanceViewProps> = ({
           </div>
 
           <div className="flex flex-col items-center gap-4">
-            {/* Buttons row for local instances */}
-            {isLocal && (
-              <div className="flex flex-col items-center gap-2">
-              <div className="flex items-center gap-4">
-                {/* Open folder button */}
-                <button
-                  onClick={() => onOpenFolder?.(instanceId)}
-                  className="p-3 rounded-xl bg-white/5 border border-white/20 text-white hover:bg-white/10 hover:border-white/30 transition-all duration-200 group"
-                >
-                  <Tooltip content="Abrir carpeta de la instancia" side="top">
-                    <svg 
-                      className="w-6 h-6 group-hover:scale-110 transition-transform" 
-                      fill="none" 
-                      stroke="currentColor" 
-                      viewBox="0 0 24 24"
-                    >
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
-                    </svg>
-                  </Tooltip>
-                </button>
-
-                {/* Download mods from Modrinth button */}
-                <button
-                  onClick={() => onDownloadMods?.(instanceId)}
-                  className="p-3 rounded-xl bg-[#ff00ff]/10 border-2 border-[#ff00ff]/30 text-[#ff00ff] hover:bg-[#ff00ff]/20 hover:border-[#ff00ff] transition-all duration-200 group neon-glow-magenta-hover"
-                >
-                  <Tooltip content="Descargar mods desde Modrinth" side="top">
-                    <div>
-                      <svg 
-                        className="w-6 h-6 group-hover:scale-110 transition-transform" 
-                        fill="none" 
-                        stroke="currentColor" 
-                        viewBox="0 0 24 24"
-                      >
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                      </svg>
-                    </div>
-                  </Tooltip>
-                </button>
-
-                {/* Play button */}
-                <LaunchButton
-                  onLaunch={() => onLaunch(localInstance || instance)}
-                  className="text-center"
-                  isJavaInstalling={isJavaInstalling}
-                  instanceId={instanceId}
-                />
-
-                {/* Sync mods button */}
-                <button
-                  onClick={() => onSyncMods?.(instanceId)}
-                  className="p-3 rounded-xl bg-[#00ffff]/10 border-2 border-[#00ffff]/30 text-[#00ffff] hover:bg-[#00ffff]/20 hover:border-[#00ffff] transition-all duration-200 group neon-glow-cyan-hover"
-                >
-                  <Tooltip content="Sincronizar mods desde instancia remota" side="top">
-                    <div>
-                      <svg 
-                        className="w-6 h-6 group-hover:rotate-180 transition-transform duration-500" 
-                        fill="none" 
-                        stroke="currentColor" 
-                        viewBox="0 0 24 24"
-                      >
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                      </svg>
-                    </div>
-                  </Tooltip>
-                </button>
-
-                {/* Copy folders button */}
-                <button
-                  onClick={() => onCopyFolders?.(instanceId)}
-                  className="p-3 rounded-xl bg-[#ffff00]/10 border-2 border-[#ffff00]/30 text-[#ffff00] hover:bg-[#ffff00]/20 hover:border-[#ffff00] transition-all duration-200 group"
-                >
-                  <Tooltip content="Copiar carpetas desde otra instancia" side="top">
-                    <div>
-                      <svg 
-                        className="w-6 h-6 group-hover:scale-110 transition-transform" 
-                        fill="none" 
-                        stroke="currentColor" 
-                        viewBox="0 0 24 24"
-                      >
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                      </svg>
-                    </div>
-                  </Tooltip>
-                </button>
-                </div>
-                <PlayTimeStats instanceId={instanceId} />
-              </div>
-            )}
-
-            {/* Regular instance - only play button */}
-            {!isLocal && (
             <div className="flex flex-col items-center gap-2">
-            <LaunchButton
-              onLaunch={() => onLaunch(instance)}
-              className="text-center"
-              isJavaInstalling={isJavaInstalling}
-              instanceId={instanceId}
-            />
+              <LaunchButton
+                onLaunch={() => onLaunch(instance)}
+                className="text-center"
+                isJavaInstalling={isJavaInstalling}
+                instanceId={instanceId}
+              />
               <PlayTimeStats instanceId={instanceId} />
             </div>
-            )}
           </div>
         </div>
       </div>
@@ -439,7 +314,7 @@ const PlayTimeStats: React.FC<{ instanceId: string }> = ({ instanceId }) => {
   const [totalHours, setTotalHours] = React.useState<number>(0);
   
   React.useEffect(() => {
-    // Cargar horas totales desde localStorage o base de datos
+    // Load total hours from localStorage or database
     const loadPlayTime = async () => {
       try {
         const saved = localStorage.getItem(`playtime_${instanceId}`);
@@ -454,20 +329,20 @@ const PlayTimeStats: React.FC<{ instanceId: string }> = ({ instanceId }) => {
     
     loadPlayTime();
     
-    // Escuchar cuando el juego termine para guardar el tiempo
+    // Listen for when the game exits to save the time
     const unlisten = async () => {
       const { listen } = await import('@tauri-apps/api/event');
       return listen('minecraft_exited', () => {
-        // El tiempo ya se guarda en LaunchButton, solo actualizar aquí
+        // The time is already saved in LaunchButton, just refresh here
         loadPlayTime();
       });
     };
-    
+
     unlisten().then(fn => {
       return () => { try { fn(); } catch {} };
     }).catch(() => {});
-    
-    // Escuchar evento personalizado cuando se actualiza el playtime
+
+    // Listen for the custom event fired when playtime is updated
     const handlePlaytimeUpdate = (event: Event) => {
       const customEvent = event as CustomEvent;
       if (customEvent.detail?.instanceId === instanceId) {

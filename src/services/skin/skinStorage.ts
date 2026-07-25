@@ -2,8 +2,9 @@ import { SkinData } from '@/types/skin';
 import { invoke } from '@tauri-apps/api/core';
 import { logger } from '@/utils/logger';
 
-const SKINS_METADATA_KEY = 'kkk_user_skins_metadata';
-const ACTIVE_SKIN_KEY = 'kkk_active_skin';
+const SKINS_METADATA_KEY = 'valthorne_user_skins_metadata';
+const ACTIVE_SKIN_KEY = 'valthorne_active_skin';
+const ACTIVE_CAPE_KEY = 'valthorne_active_cape';
 
 export class SkinStorageService {
   static async saveSkin(skinData: SkinData): Promise<void> {
@@ -159,5 +160,29 @@ export class SkinStorageService {
 
   static getAvatarUrl(uuid: string, size: number = 40, overlay: boolean = true): string {
     return `https://crafatar.com/avatars/${uuid}?size=${size}${overlay ? '&overlay=true' : ''}`;
+  }
+
+  // --- Cape metadata (capes themselves live server-side on Mojang; we only cache the
+  // locally-known active cape id for optimistic UI while a set/remove request is in flight) ---
+
+  static getLocalActiveCapeId(): string | null {
+    try {
+      return localStorage.getItem(ACTIVE_CAPE_KEY);
+    } catch (error) {
+      void logger.error('Error reading active cape', error, 'SkinStorageService');
+      return null;
+    }
+  }
+
+  static setLocalActiveCapeId(capeId: string | null): void {
+    try {
+      if (capeId) {
+        localStorage.setItem(ACTIVE_CAPE_KEY, capeId);
+      } else {
+        localStorage.removeItem(ACTIVE_CAPE_KEY);
+      }
+    } catch (error) {
+      void logger.error('Error saving active cape', error, 'SkinStorageService');
+    }
   }
 }

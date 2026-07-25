@@ -137,22 +137,15 @@ pub async fn refresh_session(app_handle: tauri::AppHandle, username: String) -> 
         .map_err(|e| format!("Failed to get session: {}", e))?;
     let Some(existing_session) = existing else { return Err("No existing session".to_string()); };
     let Some(refresh_token) = existing_session.refresh_token.clone() else { return Err("No refresh token stored".to_string()); };
-    let ms_token = crate::auth_ms::refresh_ms_token(refresh_token)
-        .await.map_err(|e| format!("Failed to refresh MS token: {}", e))?;
-    let xbox_token = crate::auth_ms::authenticate_xbox_live(&ms_token.access_token).await
-        .map_err(|e| format!("Failed Xbox Live auth: {}", e))?;
-    let xsts_token = crate::auth_ms::authenticate_xsts(&xbox_token.token).await
-        .map_err(|e| format!("Failed XSTS auth: {}", e))?;
-    let mc_token = crate::auth_ms::authenticate_minecraft(&xsts_token).await
-        .map_err(|e| format!("Failed Minecraft auth: {}", e))?;
-    let profile = crate::auth_ms::get_minecraft_profile_from_token(&mc_token.access_token).await
+    let result = crate::msa_sisu::refresh_full(&refresh_token, &session_manager).await?;
+    let profile = crate::auth_ms::get_minecraft_profile_from_token(&result.access_token).await
         .map_err(|e| format!("Failed to get Minecraft profile: {}", e))?;
     let mc_uuid = profile["id"].as_str().unwrap_or("").to_string();
     let new_expires_at = (chrono::Utc::now() + chrono::Duration::days(90)).timestamp();
     let mut updated = existing_session.clone();
     updated.uuid = mc_uuid;
-    updated.access_token = mc_token.access_token.clone();
-    updated.refresh_token = ms_token.refresh_token.clone();
+    updated.access_token = result.access_token.clone();
+    updated.refresh_token = Some(result.refresh_token.clone());
     updated.expires_at = new_expires_at;
     updated.updated_at = chrono::Utc::now().timestamp();
     session_manager.update_session(&updated)
@@ -180,33 +173,22 @@ pub async fn validate_and_refresh_token(app_handle: tauri::AppHandle, username: 
         Err(e) => return Ok(crate::EnsureSessionResponse::Err { code: "VALIDATION".into(), message: e })
     }
     if let Some(refresh_token) = session.refresh_token.clone() {
-        match crate::refresh_ms_token(refresh_token).await {
-            Ok(ms) => {
-                match crate::authenticate_xbox_live(&ms.access_token).await {
-                    Ok(xbl) => match crate::authenticate_xsts(&xbl.token).await {
-                        Ok(xsts) => match crate::authenticate_minecraft(&xsts).await {
-                            Ok(mc) => match fetch_profile_json(&mc.access_token).await {
-                                Ok(profile) => {
-                                    let mc_uuid = profile["id"].as_str().unwrap_or("").to_string();
-                                    session.uuid = mc_uuid;
-                                    session.access_token = mc.access_token;
-                                    session.refresh_token = ms.refresh_token;
-                                    session.expires_at = (Utc::now() + chrono::Duration::days(90)).timestamp();
-                                    session.updated_at = Utc::now().timestamp();
-                                    session_manager.update_session(&session)
-                                        .map_err(|e| format!("Failed to update session: {}", e))?;
-                                    return Ok(crate::EnsureSessionResponse::Ok { session, refreshed: true });
-                                },
-                                Err(e) => return Ok(crate::EnsureSessionResponse::Err { code: "MC_PROFILE_FETCH".into(), message: e.to_string() })
-                            },
-                            Err(e) => return Ok(crate::EnsureSessionResponse::Err { code: "MC_PROFILE".into(), message: e.to_string() })
-                        },
-                        Err(e) => return Ok(crate::EnsureSessionResponse::Err { code: "XSTS".into(), message: e.to_string() })
-                    },
-                    Err(e) => return Ok(crate::EnsureSessionResponse::Err { code: "XBL".into(), message: e.to_string() })
-                }
+        match crate::msa_sisu::refresh_full(&refresh_token, &session_manager).await {
+            Ok(result) => match fetch_profile_json(&result.access_token).await {
+                Ok(profile) => {
+                    let mc_uuid = profile["id"].as_str().unwrap_or("").to_string();
+                    session.uuid = mc_uuid;
+                    session.access_token = result.access_token;
+                    session.refresh_token = Some(result.refresh_token);
+                    session.expires_at = (Utc::now() + chrono::Duration::days(90)).timestamp();
+                    session.updated_at = Utc::now().timestamp();
+                    session_manager.update_session(&session)
+                        .map_err(|e| format!("Failed to update session: {}", e))?;
+                    return Ok(crate::EnsureSessionResponse::Ok { session, refreshed: true });
+                },
+                Err(e) => return Ok(crate::EnsureSessionResponse::Err { code: "MC_PROFILE_FETCH".into(), message: e.to_string() })
             },
-            Err(e) => return Ok(crate::EnsureSessionResponse::Err { code: "REFRESH_FAILED".into(), message: e.to_string() })
+            Err(e) => return Ok(crate::EnsureSessionResponse::Err { code: "REFRESH_FAILED".into(), message: e })
         }
     } else {
         return Ok(crate::EnsureSessionResponse::Err { code: "NO_REFRESH".into(), message: "No refresh token available".into() })

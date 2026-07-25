@@ -40,7 +40,7 @@ pub async fn debug_env_vars() -> Result<String, String> {
     Ok(result)
 }
 
-/// Verifica si un archivo coincide con alguno de los patrones glob proporcionados
+/// Checks whether a file matches any of the given glob patterns
 pub fn matches_glob_patterns(file_path: &str, patterns: &[String]) -> bool {
     for pattern_str in patterns {
         if let Ok(pattern) = Pattern::new(pattern_str) {

@@ -45,6 +45,21 @@ impl Session {
     }
 }
 
+/// Persisted Xbox Live device identity: an ECDSA P-256 key pair and the device token
+/// issued for it, used to sign every SISU authentication request.
+#[derive(Debug, Clone)]
+pub struct DeviceTokenRecord {
+    pub device_uuid: String,
+    pub private_key_pem: String,
+    pub x: String,
+    pub y: String,
+    pub issue_instant: i64,
+    pub not_after: i64,
+    pub token: String,
+    /// JSON-serialized `HashMap<String, serde_json::Value>`.
+    pub display_claims: String,
+}
+
 pub struct SessionManager {
     pub db_path: PathBuf,
 }
@@ -113,7 +128,83 @@ impl SessionManager {
             [],
         )?;
 
+        // Single-row table holding the Xbox Live device identity (ECDSA key pair + device
+        // token) used to sign SISU authentication requests. Kept stable across logins so we
+        // don't re-register a new device with Xbox Live every time the user signs in.
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS msa_device_tokens (
+                id INTEGER PRIMARY KEY CHECK (id = 0),
+                device_uuid TEXT NOT NULL,
+                private_key_pem TEXT NOT NULL,
+                x TEXT NOT NULL,
+                y TEXT NOT NULL,
+                issue_instant INTEGER NOT NULL,
+                not_after INTEGER NOT NULL,
+                token TEXT NOT NULL,
+                display_claims TEXT NOT NULL
+            )",
+            [],
+        )?;
+
         info!("Sessions database initialized at: {:?}", self.db_path);
+        Ok(())
+    }
+
+    pub fn get_device_token(&self) -> SqlResult<Option<DeviceTokenRecord>> {
+        let conn = Connection::open(&self.db_path)?;
+
+        let result = conn.query_row(
+            "SELECT device_uuid, private_key_pem, x, y, issue_instant, not_after, token, display_claims
+             FROM msa_device_tokens WHERE id = 0",
+            [],
+            |row| {
+                Ok(DeviceTokenRecord {
+                    device_uuid: row.get(0)?,
+                    private_key_pem: row.get(1)?,
+                    x: row.get(2)?,
+                    y: row.get(3)?,
+                    issue_instant: row.get(4)?,
+                    not_after: row.get(5)?,
+                    token: row.get(6)?,
+                    display_claims: row.get(7)?,
+                })
+            },
+        );
+
+        match result {
+            Ok(record) => Ok(Some(record)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
+
+    pub fn save_device_token(&self, record: &DeviceTokenRecord) -> SqlResult<()> {
+        let conn = Connection::open(&self.db_path)?;
+
+        conn.execute(
+            "INSERT INTO msa_device_tokens (id, device_uuid, private_key_pem, x, y, issue_instant, not_after, token, display_claims)
+             VALUES (0, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+             ON CONFLICT(id) DO UPDATE SET
+               device_uuid=excluded.device_uuid,
+               private_key_pem=excluded.private_key_pem,
+               x=excluded.x,
+               y=excluded.y,
+               issue_instant=excluded.issue_instant,
+               not_after=excluded.not_after,
+               token=excluded.token,
+               display_claims=excluded.display_claims",
+            params![
+                record.device_uuid,
+                record.private_key_pem,
+                record.x,
+                record.y,
+                record.issue_instant,
+                record.not_after,
+                record.token,
+                record.display_claims,
+            ],
+        )?;
+
         Ok(())
     }
 

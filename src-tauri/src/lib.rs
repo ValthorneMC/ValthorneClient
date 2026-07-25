@@ -1,4 +1,4 @@
-// Kindly Klan Klient
+// Valthorne Client
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::env;
@@ -23,10 +23,11 @@ mod instances;
 mod auth_ms;
 mod commands;
 mod admins;
-mod local_instances;
-mod modrinth;
 mod http_client;
 mod discord_rpc;
+mod server_status;
+mod skin_texture;
+mod msa_sisu;
 pub use models::*;
 pub use versions::*;
 pub use whitelist::*;
@@ -36,8 +37,8 @@ pub use instances::*;
 pub use auth_ms::*;
 pub use commands::*;
 pub use admins::*;
-pub use local_instances::*;
- 
+pub use server_status::*;
+
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuthSession {
@@ -50,7 +51,12 @@ pub struct AuthSession {
 }
  
 
-const AZURE_CLIENT_ID: &str = "d1538b43-1083-43ac-89d5-c88cb0049ada";
+/// Descriptive User-Agent sent on every request to Mojang's `api.minecraftservices.com`.
+/// Mojang's API is known to reject or misbehave on requests carrying a generic/default
+/// HTTP client User-Agent (e.g. plain "reqwest/x.y.z") - it expects a real, identifiable
+/// app string. Modrinth App's Minecraft client uses the same pattern.
+pub const MINECRAFT_SERVICES_USER_AGENT: &str =
+    "Valthorne Client (contact: valthornemc@gmail.com)";
 
 #[allow(dead_code)]
 async fn validate_access_token(access_token: &str) -> Result<bool, String> {
@@ -93,22 +99,22 @@ async fn launch_minecraft_with_java(
     launch_minecraft_with_auth(&app_handle, &instance_id, &minecraft_version, &java_path, &access_token, min_ram_gb, max_ram_gb).await
 }
 
-/// Busca el JSON del mod loader o usa el de la versión vanilla como fallback
-/// Usa la misma lógica que get_mod_loader_jvm_args para detectar mod loaders
+/// Finds the mod loader JSON, or falls back to the vanilla version's JSON
+/// Uses the same logic as get_mod_loader_jvm_args to detect mod loaders
 fn find_version_json_path(instance_dir: &std::path::Path, minecraft_version: &str) -> Result<std::path::PathBuf, String> {
     use std::path::PathBuf;
-    
+
     let versions_dir = instance_dir.join("versions");
     if !versions_dir.exists() {
-        // Fallback: usar el JSON de la versión vanilla
+        // Fallback: use the vanilla version's JSON
         let vanilla_json = versions_dir.join(minecraft_version).join(format!("{}.json", minecraft_version));
         if vanilla_json.exists() {
             return Ok(vanilla_json);
         }
         return Err(format!("Versions directory does not exist: {}", versions_dir.display()));
     }
-    
-    // Buscar el JSON del mod loader usando la misma lógica que get_mod_loader_jvm_args
+
+    // Find the mod loader JSON using the same logic as get_mod_loader_jvm_args
     let mut candidate_json: Option<PathBuf> = None;
     let mut fallback_json: Option<PathBuf> = None;
     
@@ -123,8 +129,8 @@ fn find_version_json_path(instance_dir: &std::path::Path, minecraft_version: &st
                 if json_path.exists() {
                     if let Ok(content) = std::fs::read_to_string(&json_path) {
                         if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
-                            // Verificar que sea un mod loader (tiene mainClass de mod loader o arguments.jvm)
-                            // Esta es la misma lógica que usa get_mod_loader_jvm_args
+                            // Verify it's a mod loader (has a mod loader mainClass or arguments.jvm)
+                            // This is the same logic used by get_mod_loader_jvm_args
                             let is_mod_loader = json.get("mainClass")
                                 .and_then(|v| v.as_str())
                                 .map(|mc| mc.contains("forge") || mc.contains("neoforge") || mc.contains("fabric") || mc.contains("Knot"))
@@ -352,7 +358,7 @@ pub fn run() {
         eprintln!("Error initializing logging: {}", e);
     }
     
-    log::info!("Starting KindlyKlanKlient...");
+    log::info!("Starting ValthorneClient...");
     
     // Global state for tracking active downloads
     use std::sync::{Arc, Mutex};
@@ -360,16 +366,15 @@ pub fn run() {
     let minecraft_processes: Arc<Mutex<HashMap<String, u32>>> = Arc::new(Mutex::new(HashMap::new()));
     
     tauri::Builder::default()
-        .plugin(tauri_plugin_oauth::init())
         .plugin(tauri_plugin_updater::Builder::default().build())
         .plugin(tauri_plugin_sql::Builder::default().build())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .setup(|app| {
-            // Establecer el título de la ventana con la versión desde Cargo.toml
+            // Set the window title with the version from Cargo.toml
             if let Some(window) = app.get_webview_window("main") {
                 let version = app.package_info().version.to_string();
-                let title = format!("Kindly Klan Klient v{}", version);
+                let title = format!("Valthorne Client v{}", version);
                 let _ = window.set_title(&title);
             }
             Ok(())
@@ -391,14 +396,9 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
-            greet,
-            get_versions,
-            launch_game,
             start_microsoft_auth,
             load_distribution_manifest,
             get_instance_background_video,
-            get_instance_details,
-            download_instance,
             create_instance_directory,
             launch_minecraft_with_java,
             get_required_java_version_command,
@@ -407,7 +407,6 @@ pub fn run() {
             set_downloading_state,
             get_java_path,
             stop_minecraft_instance,
-            restart_application,
             get_system_ram,
             save_ram_config,
             load_ram_config,
@@ -419,7 +418,6 @@ pub fn run() {
             save_update_state_command,
             download_update_silent,
             check_whitelist_access,
-            get_accessible_instances,
             clear_whitelist_cache,
             open_url,
             debug_env_vars,
@@ -438,33 +436,20 @@ pub fn run() {
             get_minecraft_profile_safe,
             clear_update_state,
             download_instance_assets,
-            test_manifest_url,
             // Admin system
             check_is_admin,
-            // Versions
-            get_minecraft_versions,
-            get_fabric_loader_versions,
-            // Local instances
-            create_local_instance,
-            get_local_instances,
-            sync_mods_from_remote,
-            open_instance_folder,
-            rename_local_instance,
-            launch_local_instance,
-            delete_local_instance,
-            // Forge and NeoForge
-            get_forge_versions,
-            get_recommended_forge_version,
-            get_neoforge_versions,
-            get_recommended_neoforge_version,
+            // Server status (home screen)
+            get_valthorne_server_status,
             // Skin management
             upload_skin_to_mojang,
-            set_skin_variant,
             create_temp_file,
             save_skin_file,
             load_skin_file,
             delete_skin_file,
             list_skin_files,
+            get_player_capes,
+            set_active_cape,
+            remove_active_cape,
             // Frontend logging
             log_frontend_error,
             get_frontend_logs,
@@ -472,25 +457,14 @@ pub fn run() {
             open_frontend_log_folder,
             open_backend_log_folder,
             toggle_devtools,
-            // Modrinth API
-            search_modrinth_mods,
-            get_modrinth_project_versions,
-            get_modrinth_version_dependencies,
-            download_modrinth_mod,
-            download_modrinth_mod_with_dependencies,
-            // Copy folders
-            copy_instance_folders,
-            list_minecraft_worlds,
-            list_installed_mods,
             // Discord RPC
             initialize_discord_rpc,
             update_discord_presence,
-            clear_discord_presence,
             shutdown_discord_rpc,
             is_discord_rpc_enabled,
             load_discord_rpc_config,
             save_discord_rpc_config
         ])
         .run(tauri::generate_context!())
-        .expect("error while running kindly klan klient");
+        .expect("error while running valthorne client");
 }

@@ -1,14 +1,7 @@
 use anyhow::Result;
-use tokio::fs;
 use std::env;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use tokio::io::AsyncWriteExt;
-use crate::versions::{Library, MinecraftVersion, VersionManifest};
-use reqwest;
-use std::collections::HashMap;
-use std::fs::File;
-use std::io::Write;
 
 pub struct MinecraftLauncher {
     pub config: LauncherConfig,
@@ -18,358 +11,6 @@ impl MinecraftLauncher {
     pub fn new() -> Result<Self> {
         Ok(Self { config: LauncherConfig::new()? })
     }
-
-    // Find Java executable in common locations
-    pub fn find_java(&self) -> Result<PathBuf> {
-        #[cfg(target_os = "windows")]
-        {
-            use std::os::windows::process::CommandExt;
-            if let Ok(output) = Command::new("java")
-                .arg("-version")
-                .creation_flags(0x08000000)
-                .output() {
-                if output.status.success() {
-                    return Ok(PathBuf::from("java"));
-                }
-            }
-        }
-        
-        #[cfg(not(target_os = "windows"))]
-        {
-        if let Ok(output) = Command::new("java").arg("-version").output() {
-            if output.status.success() {
-                return Ok(PathBuf::from("java"));
-                }
-            }
-        }
-        let common_paths = vec![
-            "C:\\Program Files\\Java\\jdk-8\\bin\\java.exe",
-            "C:\\Program Files\\Java\\jdk-11\\bin\\java.exe",
-            "C:\\Program Files\\Java\\jdk-17\\bin\\java.exe",
-            "C:\\Program Files\\Java\\jdk-21\\bin\\java.exe",
-            "C:\\Program Files\\Java\\jdk-25\\bin\\java.exe",
-        ];
-        for path in common_paths {
-            if Path::new(path).exists() {
-                return Ok(PathBuf::from(path));
-            }
-        }
-        anyhow::bail!("Java not found")
-    }
-
-    pub async fn build_classpath(&self, version: &str) -> Result<String> {
-        let version_dir = self.config.versions_dir.join(version);
-        let version_file = version_dir.join(format!("{}.json", version));
-        let version_data = fs::read_to_string(&version_file).await?;
-        #[derive(serde::Deserialize)]
-        struct VersionJson {
-            libraries: Vec<Library>,
-        }
-        let version_json: VersionJson = serde_json::from_str(&version_data)?;
-        let os_name = "windows";
-        let mut classpath = Vec::new();
-        for lib in &version_json.libraries {
-            if !crate::versions::is_library_allowed(lib, os_name) { continue; }
-            if let Some(downloads) = &lib.downloads {
-                if let Some(artifact) = &downloads.artifact {
-                    let lib_path = self.config.libraries_dir.join(&artifact.path);
-                    classpath.push(lib_path);
-                }
-            }
-        }
-        let jar_path = version_dir.join(format!("{}.jar", version));
-        classpath.push(jar_path);
-        let cp = classpath.iter().map(|p| p.display().to_string()).collect::<Vec<_>>().join(";");
-        Ok(cp)
-    }
-
-    pub async fn get_available_versions(&self) -> Result<Vec<MinecraftVersion>> {
-        let url = "https://launchermeta.mojang.com/mc/game/version_manifest.json";
-        let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(10))
-            .build()?;
-        match client.get(url).send().await {
-            Ok(response) => {
-                if response.status().is_success() {
-                    let text = response.text().await?;
-                    match serde_json::from_str::<VersionManifest>(&text) {
-                        Ok(manifest) => {
-                            let release_versions: Vec<MinecraftVersion> = manifest
-                                .versions
-                                .into_iter()
-                                .filter(|v| v.version_type == "release")
-                                .collect();
-                            Ok(release_versions)
-                        }
-                        Err(e) => Err(e.into())
-                    }
-                } else {
-                    Err(anyhow::anyhow!("API error: {}", response.status()))
-                }
-            }
-            Err(e) => Err(e.into())
-        }
-    }
-
-    pub async fn download_version(&self, version: &MinecraftVersion) -> Result<()> {
-        let version_dir = self.config.versions_dir.join(&version.id);
-        fs::create_dir_all(&version_dir).await?;
-        let natives_dir = version_dir.join("natives");
-        fs::create_dir_all(&natives_dir).await?;
-
-        let version_response = reqwest::get(&version.url).await?;
-        let version_data = version_response.text().await?;
-        let version_file = version_dir.join(format!("{}.json", version.id));
-        fs::write(&version_file, &version_data).await?;
-
-        // Parse version JSON and download client.jar
-        #[derive(serde::Deserialize)]
-        struct VersionJson {
-            downloads: VersionJsonDownloads,
-            libraries: Vec<Library>,
-            #[serde(rename = "assetIndex")]
-            asset_index: Option<AssetIndex>,
-        }
-        #[derive(serde::Deserialize)]
-        struct VersionJsonDownloads {
-            client: Option<DownloadInfo>,
-        }
-        #[derive(serde::Deserialize)]
-        struct DownloadInfo {
-            url: String,
-        }
-        #[derive(serde::Deserialize)]
-        struct AssetIndex {
-            id: String,
-            url: String,
-        }
-
-        let version_json: VersionJson = serde_json::from_str(&version_data)?;
-        if let Some(client) = version_json.downloads.client {
-            let jar_url = client.url;
-            let jar_path = version_dir.join(format!("{}.jar", version.id));
-            let resp = reqwest::get(&jar_url).await?;
-            let bytes = resp.bytes().await?.to_vec();
-            let mut out = File::create(&jar_path)?;
-            out.write_all(&bytes)?;
-        }
-
-        let os_name = "windows";
-        for lib in &version_json.libraries {
-            if !crate::versions::is_library_allowed(lib, os_name) { continue; }
-            if let Some(downloads) = &lib.downloads {
-                if let Some(artifact) = &downloads.artifact {
-                    let lib_path = self.config.libraries_dir.join(&artifact.path);
-                    if !lib_path.exists() {
-                        if let Some(parent) = lib_path.parent() {
-                            fs::create_dir_all(parent).await?;
-                        }
-                        let resp = reqwest::get(&artifact.url).await?;
-                        let bytes = resp.bytes().await?.to_vec();
-                        let mut out = File::create(&lib_path)?;
-                        out.write_all(&bytes)?;
-                    }
-                }
-            }
-        }
-
-        // Download assets if asset index is present
-        if let Some(asset_index) = &version_json.asset_index {
-            let indexes_dir = self.config.assets_dir.join("indexes");
-            fs::create_dir_all(&indexes_dir).await?;
-            let index_path = indexes_dir.join(format!("{}.json", asset_index.id));
-
-            let resp = reqwest::get(&asset_index.url).await?;
-            let bytes = resp.bytes().await?.to_vec();
-            let mut out = File::create(&index_path)?;
-            out.write_all(&bytes)?;
-
-            let index_data = String::from_utf8(bytes)?;
-            #[derive(serde::Deserialize)]
-            struct AssetIndexJson {
-                objects: HashMap<String, AssetObject>,
-            }
-            #[derive(serde::Deserialize, Clone)]
-            struct AssetObject {
-                hash: String,
-            }
-
-            let asset_index_json: AssetIndexJson = serde_json::from_str(&index_data)?;
-
-            let mut missing_assets = Vec::new();
-            for (_key, obj) in &asset_index_json.objects {
-                let hash_prefix = &obj.hash[0..2];
-                let object_dir = self.config.assets_dir.join("objects").join(hash_prefix);
-                let object_path = object_dir.join(&obj.hash);
-                if !object_path.exists() {
-                    missing_assets.push(obj.clone());
-                }
-            }
-
-            if !missing_assets.is_empty() {
-                let client = reqwest::Client::new();
-                for chunk in missing_assets.chunks(50) {
-                    let mut tasks = Vec::new();
-                    for obj in chunk {
-                        let hash_prefix = &obj.hash[0..2];
-                        let object_dir = self.config.assets_dir.join("objects").join(hash_prefix);
-                        fs::create_dir_all(&object_dir).await?;
-                        let object_path = object_dir.join(&obj.hash);
-                        let object_url = format!("https://resources.download.minecraft.net/{}/{}", hash_prefix, obj.hash);
-
-                        let client_clone = client.clone();
-                        let task = tokio::spawn(async move {
-                            match client_clone.get(&object_url).send().await {
-                                Ok(resp) => {
-                                    match resp.bytes().await {
-                                        Ok(bytes) => {
-                                            match tokio::fs::File::create(&object_path).await {
-                                                Ok(mut out) => {
-                                                    match out.write_all(&bytes).await {
-                                                        Ok(_) => Ok(()),
-                                                        Err(e) => Err(anyhow::anyhow!("Write failed: {}", e))
-                                                    }
-                                                }
-                                                Err(e) => Err(anyhow::anyhow!("File create failed: {}", e))
-                                            }
-                                        }
-                                        Err(e) => Err(anyhow::anyhow!("Bytes failed: {}", e))
-                                    }
-                                }
-                                Err(e) => Err(anyhow::anyhow!("Request failed: {}", e))
-                            }
-                        });
-                        tasks.push(task);
-                    }
-
-                    for task in tasks {
-                        if let Err(e) = task.await {
-                            eprintln!("Asset download task failed: {}", e);
-                        }
-                    }
-                }
-            }
-        }
-        Ok(())
-    }
-
-    pub async fn launch_minecraft(
-        &self,
-        version: &str,
-        username: &str,
-        ram_mb: u32,
-        access_token: Option<&str>,
-        uuid: Option<&str>
-    ) -> Result<()> {
-        let java_path = self.find_java()?;
-        let version_dir = self.config.versions_dir.join(version);
-        let jar_path = version_dir.join(format!("{}.jar", version));
-        let natives_dir = version_dir.join("natives");
-
-        if !jar_path.exists() {
-            return Err(anyhow::anyhow!("Version not downloaded"));
-        }
-
-        let classpath = self.build_classpath(version).await?;
-
-        let mut command = Command::new(&java_path);
-        command
-            .arg(format!("-Xmx{}M", ram_mb))
-            .arg(format!("-Xms{}M", ram_mb / 2))
-            .arg(format!("-Djava.library.path={}", natives_dir.display()))
-            .arg("-cp")
-            .arg(classpath)
-            .arg("net.minecraft.client.main.Main")
-            .arg("--username")
-            .arg(username)
-            .arg("--version")
-            .arg(version)
-            .arg("--gameDir")
-            .arg(&self.config.minecraft_dir)
-            .arg("--assetsDir")
-            .arg(&self.config.assets_dir);
-
-        let version_file = version_dir.join(format!("{}.json", version));
-        let version_data = fs::read_to_string(&version_file).await?;
-        #[derive(serde::Deserialize)]
-        struct VersionJson {
-            #[serde(rename = "assetIndex")]
-            asset_index: Option<AssetIndex>,
-        }
-        #[derive(serde::Deserialize)]
-        struct AssetIndex {
-            id: String,
-        }
-        let version_json: VersionJson = serde_json::from_str(&version_data)?;
-        if let Some(asset_index) = version_json.asset_index {
-            command.arg("--assetIndex").arg(asset_index.id);
-        }
-        command.arg("--accessToken").arg(access_token.unwrap_or("0"))
-               .arg("--uuid").arg(uuid.unwrap_or("00000000-0000-0000-0000-000000000000"))
-               .arg("--userType").arg("msa")
-               .arg("--userProperties").arg("{}");
-
-        // Launch Minecraft in detached mode
-        let _child = command.spawn()?;
-        Ok(())
-    }
-}
-
-pub fn get_total_ram_mb() -> anyhow::Result<u32> {
-    #[cfg(target_os = "windows")]
-    {
-        use std::os::windows::process::CommandExt;
-        if let Ok(output) = Command::new("wmic")
-            .arg("OS")
-            .arg("get")
-            .arg("TotalVisibleMemorySize")
-            .creation_flags(0x08000000)
-            .output() {
-        if output.status.success() {
-            let stdout = String::from_utf8(output.stdout)?;
-            for line in stdout.lines() {
-                if let Ok(kb) = line.trim().parse::<u64>() {
-                    return Ok((kb / 1024) as u32);
-                }
-            }
-        }
-    }
-    }
-    
-    #[cfg(not(target_os = "windows"))]
-    {
-        #[cfg(target_os = "linux")]
-        {
-            if let Ok(output) = Command::new("free").arg("-b").output() {
-                if output.status.success() {
-                    let stdout = String::from_utf8_lossy(&output.stdout);
-                    for line in stdout.lines() {
-                        if line.starts_with("Mem:") {
-                            if let Some(kb_str) = line.split_whitespace().nth(1) {
-                                if let Ok(bytes) = kb_str.parse::<u64>() {
-                                    return Ok((bytes / 1024 / 1024) as u32);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        
-        #[cfg(target_os = "macos")]
-        {
-            if let Ok(output) = Command::new("sysctl").arg("-n").arg("hw.memsize").output() {
-                if output.status.success() {
-                    let stdout = String::from_utf8_lossy(&output.stdout);
-                    if let Ok(bytes) = stdout.trim().parse::<u64>() {
-                        return Ok((bytes / 1024 / 1024) as u32);
-                    }
-                }
-            }
-        }
-    }
-    
-    Ok(4096)
 }
 
 pub fn get_required_java_version_for_minecraft(mc_version: &str) -> u8 {
@@ -441,12 +82,12 @@ pub async fn find_java_executable() -> Result<String, String> {
         return Ok(java_path);
     }
 
-    // Si no se encuentra, intentar usar Java 8 como fallback desde runtime
+    // If not found, try to use Java 8 as a fallback from runtime
     let kindly_dir = std::env::var("USERPROFILE")
         .or_else(|_| std::env::var("HOME"))
         .map(|p| std::path::PathBuf::from(p))
         .unwrap_or_else(|_| std::path::PathBuf::from("."))
-        .join(".kindlyklanklient");
+        .join(".valthorneclient");
     
     let java_8_path = kindly_dir.join("runtime").join("java-8").join("bin").join(if cfg!(target_os = "windows") { "java.exe" } else { "java" });
     
@@ -457,16 +98,16 @@ pub async fn find_java_executable() -> Result<String, String> {
     Err("Java executable not found. Please ensure Java is installed.".to_string())
 }
 
-/// Busca o instala automáticamente el ejecutable de Java para una versión específica de Minecraft
+/// Automatically finds or installs the Java executable for a specific Minecraft version
 pub async fn find_or_install_java_for_minecraft(mc_version: &str) -> Result<String, String> {
     let required_java_version = get_required_java_version_for_minecraft(mc_version);
-    
-    // Verificar si ya existe la versión requerida en runtime
+
+    // Check whether the required version already exists in runtime
     let kindly_dir = std::env::var("USERPROFILE")
         .or_else(|_| std::env::var("HOME"))
         .map(|p| std::path::PathBuf::from(p))
         .unwrap_or_else(|_| std::path::PathBuf::from("."))
-        .join(".kindlyklanklient");
+        .join(".valthorneclient");
     
     let java_path = kindly_dir
         .join("runtime")
@@ -478,8 +119,8 @@ pub async fn find_or_install_java_for_minecraft(mc_version: &str) -> Result<Stri
         return Ok(java_path.to_string_lossy().to_string());
     }
     
-    log::warn!("⚠️  Java {} no encontrado, se requiere para Minecraft {}", required_java_version, mc_version);
-    log::info!("🔽 Descargando Java {} automáticamente...", required_java_version);
+    log::warn!("⚠️  Java {} not found, required for Minecraft {}", required_java_version, mc_version);
+    log::info!("🔽 Downloading Java {} automatically...", required_java_version);
     
     download_java_silent(required_java_version).await?;
     
@@ -493,7 +134,7 @@ pub async fn find_or_install_java_for_minecraft(mc_version: &str) -> Result<Stri
     ))
 }
 
-/// Descarga e instala Java sin interfaz de usuario
+/// Downloads and installs Java without a user interface
 async fn download_java_silent(java_version: u8) -> Result<(), String> {
     let version_str = java_version.to_string();
     
@@ -501,7 +142,7 @@ async fn download_java_silent(java_version: u8) -> Result<(), String> {
         .or_else(|_| std::env::var("HOME"))
         .map(|p| std::path::PathBuf::from(p))
         .unwrap_or_else(|_| std::path::PathBuf::from("."))
-        .join(".kindlyklanklient");
+        .join(".valthorneclient");
     
     let runtime_dir = kindly_dir.join("runtime");
     let java_dir = runtime_dir.join(format!("java-{}", version_str));
@@ -527,7 +168,7 @@ async fn download_java_silent(java_version: u8) -> Result<(), String> {
     let client = reqwest::Client::new();
     let response = client
         .get(&jre_url)
-        .header("User-Agent", "KindlyKlanKlient/1.0")
+        .header("User-Agent", "ValthorneClient/1.0")
         .header("Accept", "application/octet-stream")
         .send()
         .await
@@ -575,7 +216,7 @@ async fn download_java_silent(java_version: u8) -> Result<(), String> {
         }
     }
     
-    // Renombrar el directorio extraído al nombre esperado
+    // Rename the extracted directory to the expected name
     let all_entries = std::fs::read_dir(&runtime_dir)
         .map_err(|e| format!("Failed to read runtime directory: {}", e))?
         .collect::<Result<Vec<_>, _>>()
@@ -616,8 +257,8 @@ fn get_java_path_from_env() -> String {
         .map(|java_home| format!("{}/bin/java", java_home))
         .unwrap_or_else(|_| {
             let possible_paths = [
-                ".kindlyklanklient/java/bin/java",
-                "C:\\Users\\{username}\\.kindlyklanklient\\java\\bin\\java",
+                ".valthorneclient/java/bin/java",
+                "C:\\Users\\{username}\\.valthorneclient\\java\\bin\\java",
             ];
 
             for path in &possible_paths {
@@ -858,23 +499,23 @@ fn collect_jars_recursively_excluding(dir: &Path, out: &mut Vec<String>, exclude
 		if entry.file_type().is_file() {
 			let p = entry.into_path();
 			if p.extension().map_or(false, |e| e == "jar") {
-				// Normalizar la ruta para comparar con exclude_jars
+				// Normalize the path to compare against exclude_jars
 				let canonical_opt = p.canonicalize().ok();
 				let canonical_str = canonical_opt.as_ref()
 					.map(|c| c.to_string_lossy().to_string());
 				let path_str = p.to_string_lossy().to_string();
-				
-				// Remover prefijo \\?\ de Windows si está presente
+
+				// Remove Windows \\?\ prefix if present
 				let canonical_clean = canonical_str.as_ref()
 					.map(|s| s.strip_prefix("\\\\?\\").unwrap_or(s).to_string());
 				let path_clean = path_str.strip_prefix("\\\\?\\").unwrap_or(&path_str).to_string();
-				
-				// Normalizar separadores de ruta para comparación
+
+				// Normalize path separators for comparison
 				let normalized_canonical = canonical_clean.as_ref()
 					.map(|s| s.replace("\\", "/"));
 				let normalized_path = path_clean.replace("\\", "/");
-				
-				// Verificar si está excluido (comparar con todas las variantes posibles)
+
+				// Check whether it's excluded (compare against all possible variants)
 				let is_excluded = {
 					let mut excluded = false;
 					if let Some(ref canonical) = canonical_str {
@@ -893,8 +534,8 @@ fn collect_jars_recursively_excluding(dir: &Path, out: &mut Vec<String>, exclude
 				};
 				
 				if !is_excluded {
-					// Usar dunce::canonicalize para normalizar el path correctamente en Windows
-					// Esto convierte automáticamente separadores a \ y remueve el prefijo \\?\
+					// Use dunce::canonicalize to normalize the path correctly on Windows
+					// This automatically converts separators to \ and removes the \\?\ prefix
 					let normalized_path = dunce::canonicalize(&p)
 						.unwrap_or_else(|_| p.clone())
 						.to_string_lossy()
@@ -1071,12 +712,12 @@ pub fn get_mod_loader_jvm_args(instance_dir: &Path, version_id: Option<&str>, mo
                         let arg_str_opt = if let Some(arg_str) = arg.as_str() {
                             Some(arg_str.to_string())
                         } else if let Some(obj) = arg.as_object() {
-                            // Argumentos condicionales - procesar value
+                            // Conditional arguments - process value
                             if let Some(value) = obj.get("value") {
                                 if let Some(value_str) = value.as_str() {
                                     Some(value_str.to_string())
                                 } else if let Some(value_arr) = value.as_array() {
-                                    // Si es un array, tomar el primer valor o concatenar
+                                    // If it's an array, take the first value or concatenate
                                     value_arr.first()
                                         .and_then(|v| v.as_str())
                                         .map(|s| s.to_string())
@@ -1091,47 +732,47 @@ pub fn get_mod_loader_jvm_args(instance_dir: &Path, version_id: Option<&str>, mo
                         };
                         
                         if let Some(arg_str) = arg_str_opt {
-                            // Reemplazar TODOS los placeholders
+                            // Replace ALL placeholders
                             let processed_arg = arg_str
                                 .replace("${library_directory}", &library_directory)
                                 .replace("${natives_directory}", &natives_directory)
                                 .replace("${classpath_separator}", classpath_separator)
                                 .replace("${version_name}", &version_name)
-                                .replace("${launcher_name}", "KindlyKlanKlient")
+                                .replace("${launcher_name}", "ValthorneClient")
                                 .replace("${launcher_version}", "1.0.0")
-                                .replace("${classpath}", ""); // Se pasa por separado, eliminar
-                            
-                            // NO MODIFICAR NADA - usar el JSON tal cual lo proporciona NeoForge
-                            // Filtrar argumentos incompatibles
+                                .replace("${classpath}", ""); // Passed separately, remove
+
+                            // DO NOT MODIFY ANYTHING - use the JSON as NeoForge provides it
+                            // Filter out incompatible arguments
                             #[cfg(target_os = "windows")]
                             {
                                 if processed_arg == "-XstartOnFirstThread" {
                                     continue;
                                 }
                             }
-                            
-                            // Eliminar -cp y classpath ya que se pasa por separado
+
+                            // Remove -cp and classpath since it's passed separately
                             if processed_arg == "-cp" || processed_arg.starts_with("-cp ") {
                                 continue;
                             }
                             if processed_arg.contains("${classpath}") || processed_arg == "${classpath}" {
                                 continue;
                             }
-                            
-                            // Validar rutas de módulos si es -p (module path)
+
+                            // Validate module paths when it's -p (module path)
                             if processed_arg == "-p" {
                                 additional_args.push(processed_arg);
                                 continue;
                             }
-                            
-                            // Si el argumento anterior era -p, validar que los JARs existan y normalizar rutas
+
+                            // If the previous argument was -p, validate that the JARs exist and normalize paths
                             if !additional_args.is_empty() && additional_args.last() == Some(&"-p".to_string()) {
                                 let module_paths: Vec<&str> = processed_arg.split(classpath_separator).collect();
                                 let mut valid_paths = Vec::new();
-                                
+
                                 for jar_path in module_paths {
                                     let jar_path_trimmed = jar_path.trim();
-                                    // Normalizar la ruta: reemplazar / por \ en Windows y quitar prefijo \\?\
+                                    // Normalize the path: replace / with \ on Windows and strip the \\?\ prefix
                                     let normalized_path = if cfg!(target_os = "windows") {
                                         jar_path_trimmed
                                             .strip_prefix("\\\\?\\").unwrap_or(jar_path_trimmed)
@@ -1228,46 +869,6 @@ pub fn get_mod_loader_jvm_args(instance_dir: &Path, version_id: Option<&str>, mo
     additional_args
 }
 
-pub fn get_mod_loader_game_args(instance_dir: &Path, version_id: Option<&str>) -> Vec<String> {
-    let mut game_args = Vec::new();
-    
-    let selected_json = if let Some(vid) = version_id {
-        let versions_dir = instance_dir.join("versions");
-        let json_path = versions_dir.join(vid).join(format!("{}.json", vid));
-        
-        if json_path.exists() {
-            if let Ok(content) = std::fs::read_to_string(&json_path) {
-                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
-                    Some(json)
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
-        } else {
-            None
-        }
-    } else {
-        None
-    };
-    
-    if let Some(json) = selected_json {
-        if let Some(arguments) = json.get("arguments") {
-            if let Some(game_args_json) = arguments.get("game") {
-                if let Some(game_array) = game_args_json.as_array() {
-                    for arg in game_array {
-                        if let Some(arg_str) = arg.as_str() {
-                            game_args.push(arg_str.to_string());
-                        }
-                    }
-                }
-            }
-        }
-    }
-    
-    game_args
-}
 
 
 fn ensure_required_add_opens(loader_type: Option<&str>, args: &mut Vec<String>) {
@@ -1323,37 +924,21 @@ pub fn build_minecraft_jvm_args(
 
 pub fn get_instance_directory(instance_id: &str) -> PathBuf {
 	let base = std::env::var("USERPROFILE")
-		.map(|p| std::path::Path::new(&p).join(".kindlyklanklient"))
-		.unwrap_or_else(|_| std::path::Path::new(".").join(".kindlyklanklient"));
+		.map(|p| std::path::Path::new(&p).join(".valthorneclient"))
+		.unwrap_or_else(|_| std::path::Path::new(".").join(".valthorneclient"));
 	base.join(instance_id)
 }
 
 // Launcher directory configuration
 pub struct LauncherConfig {
     pub minecraft_dir: PathBuf,
-    pub versions_dir: PathBuf,
-    pub assets_dir: PathBuf,
-    pub libraries_dir: PathBuf,
 }
 
 impl LauncherConfig {
     pub fn new() -> Result<Self> {
         let home = env::var("USERPROFILE").unwrap_or_else(|_| "C:\\Users\\Default".to_string());
-        let minecraft_dir = PathBuf::from(home).join(".kindlyklanklient");
-        Ok(Self {
-            versions_dir: minecraft_dir.join("versions"),
-            assets_dir: minecraft_dir.join("assets"),
-            libraries_dir: minecraft_dir.join("libraries"),
-            minecraft_dir,
-        })
-    }
-
-    pub async fn ensure_directories(&self) -> Result<()> {
-        fs::create_dir_all(&self.minecraft_dir).await?;
-        fs::create_dir_all(&self.versions_dir).await?;
-        fs::create_dir_all(&self.assets_dir).await?;
-        fs::create_dir_all(&self.libraries_dir).await?;
-        Ok(())
+        let minecraft_dir = PathBuf::from(home).join(".valthorneclient");
+        Ok(Self { minecraft_dir })
     }
 }
 

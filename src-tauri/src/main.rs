@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    kindlyklanklient_lib::run()
+    valthorneclient_lib::run()
 }
