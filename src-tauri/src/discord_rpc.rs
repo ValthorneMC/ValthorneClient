@@ -2,9 +2,7 @@ use discord_rich_presence::{activity, DiscordIpc, DiscordIpcClient};
 use std::sync::{Arc, Mutex};
 use once_cell::sync::Lazy;
 
-// TODO: replace with the Client ID of a Discord application owned by Valthorne
-// (this one belongs to KindlyKlan's Discord app and must be regenerated).
-pub const DISCORD_CLIENT_ID: &str = "1167540128986697850";
+pub const DISCORD_CLIENT_ID: &str = "1530903474282430575";
 
 pub static DISCORD_CLIENT: Lazy<Arc<Mutex<Option<DiscordIpcClient>>>> =
     Lazy::new(|| Arc::new(Mutex::new(None)));
@@ -102,7 +100,7 @@ pub fn update_discord_presence(state: &str, details: &str) -> Result<(), String>
         };
 
         activity = activity.buttons(vec![
-            activity::Button::new("Únete al Discord", "https://discord.gg/valthorne")
+            activity::Button::new("Únete al Discord", "https://discord.playvalthorne.com")
         ]);
 
         match client.set_activity(activity) {
