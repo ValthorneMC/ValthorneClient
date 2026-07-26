@@ -20,9 +20,7 @@ import { SkinManager } from "@/components/skin/SkinManager";
 import { sendNotificationSafe, initializeNotificationPermissions } from "@/utils/notifications";
 import { showIndeterminateProgressBar, hideProgressBar } from "@/utils/progressBar";
 import { UpdaterService } from "@/services/updater";
-import { WhitelistService } from "@/services/whitelist";
 import { SessionService } from "@/services/sessions";
-import NoAccessScreen from "@/components/NoAccessScreen";
 import valthorneLogo from "@/assets/valthorne.png";
 import microsoftIcon from "@/assets/icons/microsoft.svg";
 import { logger } from "@/utils/logger";
@@ -354,7 +352,6 @@ function App() {
   const [isDownloadingAssets, setIsDownloadingAssets] = useState(false);
   const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
   const [updateDialogState, setUpdateDialogState] = useState<{ isDownloadReady: boolean; hasUpdateAvailable: boolean; version: string | null } | null>(null);
-  const [showNoAccessScreen, setShowNoAccessScreen] = useState(false);
   const initialized = useRef(false);
 
   const [updateDownloadProgress, setUpdateDownloadProgress] = useState<number | null>(null);
@@ -786,23 +783,6 @@ function App() {
     }
   };
 
-  const handleLogout = async () => {
-    try {
-      if (currentAccount) {
-        await SessionService.deleteSession(currentAccount.user.username);
-      }
-      await SessionService.clearAllSessions();
-    } catch (error) {
-      void logger.error('Error clearing sessions from database', error, 'handleLogout');
-    }
-
-    setAccounts([]);
-    setCurrentAccount(null);
-    setShowNoAccessScreen(false);
-    setIsLoginVisible(true);
-    addToast('Sesión cerrada correctamente', 'info');
-  };
-
   const checkExistingSession = async () => {
     try {
       const activeSession = await SessionService.getActiveSession();
@@ -810,7 +790,7 @@ function App() {
       if (activeSession) {
         if (SessionService.isSessionExpired(activeSession)) {
           await SessionService.deleteSession(activeSession.username);
-          setShowNoAccessScreen(true);
+          setIsLoginVisible(true);
           return;
         }
 
@@ -836,20 +816,6 @@ function App() {
 
         setAccounts([account]);
         setCurrentAccount(account);
-
-        try {
-          const accessCheck = await WhitelistService.checkAccess(account.user.username);
-          if (!accessCheck.has_access) {
-            setAccounts([]);
-            setCurrentAccount(null);
-            setShowNoAccessScreen(true);
-            await SessionService.deleteSession(activeSession.username);
-            return;
-          }
-        } catch (whitelistError) {
-          void logger.error('Error checking whitelist for existing session', whitelistError, 'checkExistingSession');
-          addToast('Advertencia: No se pudo verificar el acceso. Contacta a un administrador si hay problemas.', 'info');
-        }
       }
     } catch (error) {
       void logger.error('Error checking existing session', error, 'checkExistingSession');
@@ -909,40 +875,19 @@ function App() {
       setCurrentAccount(newAccount);
       setAccounts(updatedAccounts);
 
-      setLoaderText("Verificando acceso...");
-      try {
-        const whitelistPromise = WhitelistService.checkAccess(userSession.username);
-        const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Whitelist timeout')), 8000));
-        const accessCheck = await Promise.race([whitelistPromise, timeoutPromise]) as any;
+      addToast('Autenticación exitosa.', 'success');
+      setIsTransitioning(true);
 
-        if (!accessCheck.has_access) {
-          await SessionService.deleteSession(userSession.username);
-          setShowNoAccessScreen(true);
-          setIsLoading(false);
-          setShowLoader(false);
-          return;
-        }
-
-        addToast('Autenticación exitosa.', 'success');
-        setIsTransitioning(true);
-
-        setTimeout(() => {
-          setIsLoading(false);
-          setShowLoader(false);
-          setLoaderText("Iniciando sesión...");
-
-          setTimeout(() => {
-            setIsTransitioning(false);
-          }, 500);
-        }, 1000);
-        
-      } catch (whitelistError) {
-        void logger.error('Whitelist check error', whitelistError, 'handleMicrosoftAuth');
-        addToast('Error verificando acceso. Inténtalo de nuevo.', 'error');
+      setTimeout(() => {
         setIsLoading(false);
         setShowLoader(false);
-      }
-      
+        setLoaderText("Iniciando sesión...");
+
+        setTimeout(() => {
+          setIsTransitioning(false);
+        }, 500);
+      }, 1000);
+
     } catch (error) {
       void logger.error('Microsoft auth error', error, 'handleMicrosoftAuth');
       addToast('Error en autenticación: ' + error, 'error');
@@ -958,14 +903,6 @@ function App() {
 
   return (
     <div className="h-screen bg-gradient-to-br from-black via-[#0a0a0a] to-black flex relative overflow-hidden">
-      {/* No Access Screen - Full screen overlay */}
-      {showNoAccessScreen ? (
-        <NoAccessScreen 
-          onLogout={handleLogout}
-          username={currentAccount?.user.username}
-        />
-      ) : (
-        <>
           {currentAccount && (
                <Sidebar
                  onHomeSelect={handleGoHome}
@@ -1439,9 +1376,6 @@ function App() {
             </div>
           </div>
         </div>
-      )}
-
-        </>
       )}
     </div>
   );

@@ -113,20 +113,6 @@ impl UpdateState {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct WhitelistEntry {
-    pub minecraft_username: String,
-    pub global_access: bool,
-    pub allowed_instances: Option<Vec<String>>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AccessCheck {
-    pub has_access: bool,
-    pub allowed_instances: Vec<String>,
-    pub global_access: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AssetDownloadProgress {
     pub current: u64,
     pub total: u64,

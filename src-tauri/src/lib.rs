@@ -17,7 +17,6 @@ mod models;
 mod versions;
 mod launcher;
 mod utils;
-mod whitelist;
 mod sessions_api;
 mod instances;
 mod auth_ms;
@@ -30,7 +29,6 @@ mod skin_texture;
 mod msa_sisu;
 pub use models::*;
 pub use versions::*;
-pub use whitelist::*;
 pub use utils::*;
 pub use sessions_api::*;
 pub use instances::*;
@@ -417,10 +415,7 @@ pub fn run() {
             get_update_state,
             save_update_state_command,
             download_update_silent,
-            check_whitelist_access,
-            clear_whitelist_cache,
             open_url,
-            debug_env_vars,
             save_session,
             get_session,
             get_active_session,
