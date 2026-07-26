@@ -402,7 +402,7 @@ function App() {
     return () => { if (unlisten) { try { unlisten(); } catch {} } };
   }, []);
   
-  const DISTRIBUTION_URL = 'http://files.playvalthorne.com/dist/manifest.json';
+  const DISTRIBUTION_URL = 'http://files.playvalthorne.com/manifest.json';
 
   const checkForUpdatesOnStartup = async () => {
     try {
