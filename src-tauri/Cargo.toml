@@ -1,6 +1,6 @@
 [package]
 name = "valthorneclient"
-version = "1.0.3"
+version = "1.0.4"
 description = "Official client for the Valthorne Minecraft server."
 authors = ["Valthorne"]
 edition = "2024"
