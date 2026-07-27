@@ -379,6 +379,7 @@ pub fn run() {
         })
         .manage(is_downloading)
         .manage(minecraft_processes.clone())
+        .manage(crate::commands::PendingUpdateState::default())
         .on_window_event(move |window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 let app_handle = window.app_handle();

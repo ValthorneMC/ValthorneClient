@@ -429,6 +429,14 @@ pub async fn list_skin_files() -> Result<Vec<String>, String> {
     Ok(skin_ids)
 }
 
+/// Update package already downloaded and waiting to be installed
+pub struct PendingUpdate {
+    pub version: String,
+    pub bytes: Vec<u8>,
+}
+
+pub type PendingUpdateState = Arc<Mutex<Option<PendingUpdate>>>;
+
 #[tauri::command]
 pub async fn check_for_updates(app_handle: AppHandle) -> Result<String, String> {
     use tauri_plugin_updater::UpdaterExt;
@@ -463,43 +471,74 @@ pub async fn check_for_updates(app_handle: AppHandle) -> Result<String, String> 
 }
 
 #[tauri::command]
-pub async fn install_update(app_handle: AppHandle) -> Result<String, String> {
+pub async fn install_update(app_handle: AppHandle, pending: State<'_, PendingUpdateState>) -> Result<String, String> {
     use tauri_plugin_updater::UpdaterExt;
     let updater = app_handle.updater().map_err(|e| format!("Failed to get updater: {}", e))?;
-    match updater.check().await {
-        Ok(update) => {
-            if let Some(update) = update {
-                // Clear the state BEFORE installing to avoid it getting stuck on "needs install"
-                let mut new_state = load_update_state().await;
-                new_state.downloaded = false;
-                new_state.download_ready = false;
-                new_state.manual_download = false;
-                new_state.available_version = None; // Also clear the available version
-                save_update_state(&new_state).await.ok(); // Try to save, but don't fail if it can't
-                
-                app_handle.emit("update-install-start", ()).unwrap_or_default();
-                update.download_and_install(
+
+    let update = match updater.check().await {
+        Ok(Some(update)) => update,
+        Ok(None) => return Ok("No update available to install".to_string()),
+        Err(e) => return Err(format!("Failed to check for updates: {}", e)),
+    };
+
+    let cached_bytes = pending
+        .lock()
+        .ok()
+        .and_then(|mut slot| match slot.as_ref() {
+            Some(p) if p.version == update.version => slot.take().map(|p| p.bytes),
+            _ => None,
+        });
+
+    app_handle.emit("update-install-start", ()).unwrap_or_default();
+
+    let result = match cached_bytes {
+        Some(bytes) => {
+            log::info!("Installing already downloaded update {}", update.version);
+            let _ = app_handle.emit("update-install-complete", ());
+            update.install(bytes).map_err(|e| format!("Failed to install update: {}", e))
+        }
+        None => {
+            log::info!("No cached package for {}, downloading before install", update.version);
+            update
+                .download_and_install(
                     |chunk_length, content_length| {
-                        println!("Downloading and installing update: {} of {:?}", chunk_length, content_length);
-                        let percentage = if let Some(total) = content_length {
-                            ((chunk_length as f64 / total as f64) * 100.0) as u32
-                        } else {
-                            0
+                        let percentage = match content_length {
+                            Some(total) if total > 0 => ((chunk_length as f64 / total as f64) * 100.0) as u32,
+                            _ => 0,
                         };
                         let _ = app_handle.emit("update-download-progress", percentage);
                     },
                     || {
-                        println!("Install finished - app will restart");
                         let _ = app_handle.emit("update-install-complete", ());
-                    }
-                ).await.map_err(|e| format!("Failed to install update: {}", e))?;
-                Ok("Update installed successfully".to_string())
-            } else {
-                Ok("No update available to install".to_string())
-            }
+                    },
+                )
+                .await
+                .map_err(|e| format!("Failed to install update: {}", e))
         }
-        Err(e) => Err(format!("Failed to check for updates: {}", e))
+    };
+
+    if let Err(e) = result {
+        log::error!("Update install failed: {}", e);
+        return Err(e);
     }
+
+    let mut new_state = load_update_state().await;
+    new_state.downloaded = false;
+    new_state.download_ready = false;
+    new_state.manual_download = false;
+    new_state.available_version = None;
+    save_update_state(&new_state).await.ok();
+
+    // On Windows the installer exits the app on its own; on macOS and Linux the new
+    // bundle is only swapped in place, so the running process has to be restarted.
+    #[cfg(not(target_os = "windows"))]
+    {
+        log::info!("Update installed, restarting app");
+        app_handle.restart();
+    }
+
+    #[cfg(target_os = "windows")]
+    Ok("Update installed successfully".to_string())
 }
 
 fn launcher_config_path() -> std::path::PathBuf {
@@ -640,7 +679,11 @@ pub async fn clear_update_state() -> Result<String, String> {
 }
 
 #[tauri::command]
-pub async fn download_update_silent(app_handle: AppHandle, manual: Option<bool>) -> Result<String, String> {
+pub async fn download_update_silent(
+    app_handle: AppHandle,
+    manual: Option<bool>,
+    pending: State<'_, PendingUpdateState>,
+) -> Result<String, String> {
     use tauri_plugin_updater::UpdaterExt;
     let updater = app_handle.updater().map_err(|e| format!("Failed to get updater: {}", e))?;
     let is_manual = manual.unwrap_or(false);
@@ -648,9 +691,9 @@ pub async fn download_update_silent(app_handle: AppHandle, manual: Option<bool>)
         Ok(Some(update)) => {
             // Emit the download start event
             let _ = app_handle.emit("update-download-start", ());
-            
+
             // Download the update with callbacks to report progress
-            update.download(
+            let bytes = update.download(
                 |chunk_length, content_length| {
                     let percentage = if let Some(total) = content_length {
                         ((chunk_length as f64 / total as f64) * 100.0) as u32
@@ -663,7 +706,11 @@ pub async fn download_update_silent(app_handle: AppHandle, manual: Option<bool>)
                     let _ = app_handle.emit("update-download-complete", ());
                 }
             ).await.map_err(|e| format!("Failed to download update: {}", e))?;
-            
+
+            if let Ok(mut slot) = pending.lock() {
+                *slot = Some(PendingUpdate { version: update.version.clone(), bytes });
+            }
+
             // Update the state to indicate that the download is ready
             let mut state = load_update_state().await;
             state.available_version = Some(update.version.clone());
