@@ -230,7 +230,7 @@ const LaunchButton: React.FC<LaunchButtonProps> = ({
 	};
 
 	const getButtonClass = () => {
-		const baseClass = "text-white font-bold text-xl px-16 py-8 rounded-2xl shadow-2xl transform transition-all duration-500 ease-out text-center relative overflow-hidden min-w-[16rem] hover:scale-105";
+		const baseClass = "text-white font-bold text-xl px-16 py-8 rounded-2xl shadow-2xl transform-gpu will-change-transform transition-[transform,box-shadow,border-color,background-color] duration-300 ease-out text-center relative overflow-hidden w-[16rem] hover:scale-[1.03]";
 		const currentCachedState = launchStateCache.get(instanceId);
 		const currentState = currentCachedState?.state || state;
 		if (currentState === 'playing' || currentState === 'launching') {
@@ -250,7 +250,6 @@ const LaunchButton: React.FC<LaunchButtonProps> = ({
 				boxShadow: '0 8px 32px 0 rgba(0, 0, 0, 0.7)',
 				border: '1px solid',
 				borderColor: isHovered ? 'rgba(212, 175, 55, 0.8)' : 'rgba(212, 175, 55, 0.5)',
-				transition: 'all 0.5s cubic-bezier(0.4, 0, 0.2, 1)'
 			};
 		}
 		return {
@@ -260,7 +259,6 @@ const LaunchButton: React.FC<LaunchButtonProps> = ({
 			boxShadow: '0 8px 32px 0 rgba(0, 0, 0, 0.7)',
 			border: '1px solid',
 			borderColor: isHovered ? 'rgba(212, 175, 55, 0.7)' : 'rgba(212, 175, 55, 0.4)',
-			transition: 'all 0.5s cubic-bezier(0.4, 0, 0.2, 1)'
 		};
 	};
 

@@ -132,9 +132,10 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ instanceName, onPlay, addToast 
           <button
             onClick={onPlay}
             className="mt-4 relative glass-light hover:bg-white/10 text-[#e8dcc0] border-2 border-[#d4af37]/30 hover:border-[#d4af37]/70
-                     rounded-2xl px-16 py-6 text-2xl font-heading tracking-wide transition-all duration-300 ease-out
+                     rounded-2xl px-16 py-6 text-2xl font-heading tracking-wide ease-out
+                     transform-gpu will-change-transform transition-[transform,box-shadow,border-color,background-color] duration-300
                      shadow-2xl hover:shadow-[0_0_30px_rgba(212,175,55,0.35)] group overflow-hidden min-w-[280px]
-                     cursor-pointer hover:scale-105 neon-glow-cyan-hover"
+                     cursor-pointer hover:scale-[1.03] neon-glow-cyan-hover"
           >
             <div className="absolute inset-0 bg-gradient-to-r from-transparent via-[#d4af37]/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
             <span className="relative z-10">Jugar {instanceName ? `a ${instanceName}` : ''}</span>
