@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import AppBackground from '@/components/AppBackground';
 import { UpdaterService } from '@/services/updater';
 import type { UpdateState, UpdateProgress } from '@/types/updater';
 import { logger } from '@/utils/logger';
@@ -321,24 +322,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ addToast, scrollToUpdates =
   return (
     <div className="relative h-full w-full overflow-hidden">
       
-      {/* Background */}
-      <div className="absolute inset-0 z-0">
-        <div
-          className="w-full h-full"
-          style={{
-            background: 'linear-gradient(135deg, #000000 0%, #0a0a0a 50%, #000000 100%)'
-          }}
-        />
-      </div>
-
-      {/* Subtle Valthorne mist accents in background */}
-      <div className="absolute inset-0 z-5 opacity-10">
-        <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-[#d4af37] rounded-full blur-3xl"></div>
-        <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-[#7c4dbd] rounded-full blur-3xl"></div>
-      </div>
-
-      {/* Overlay */}
-      <div className="absolute inset-0 bg-black/60 z-10" />
+      <AppBackground />
 
        {/* Content */}
        <div className="relative z-20 h-full flex flex-col">

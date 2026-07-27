@@ -372,18 +372,7 @@ pub async fn count_mojang_assets_pending(instance_dir: &Path, mc_version: &str) 
 }
 
 pub async fn create_instance_directory_safe(instance_id: &str, _app_handle: &tauri::AppHandle) -> Result<PathBuf, String> {
-    use std::env;
-
-    let mut data_dir = if let Ok(home) = env::var("HOME") {
-        PathBuf::from(home)
-    } else if let Ok(home) = env::var("USERPROFILE") {
-        PathBuf::from(home)
-    } else {
-        return Err("Could not determine user home directory".to_string());
-    };
-
-    data_dir.push(".valthorneclient");
-    data_dir.push(instance_id);
+    let data_dir = crate::utils::valthorne_dir().join(instance_id);
 
     tokio::fs::create_dir_all(&data_dir).await
         .map_err(|e| format!("Failed to create instance directory: {}", e))?;
@@ -453,13 +442,14 @@ pub async fn ensure_version_libraries(instance_dir: &Path, mc_version: &str) -> 
     #[derive(serde::Deserialize)]
     struct VersionJson { libraries: Vec<crate::versions::Library> }
     let vj: VersionJson = serde_json::from_str(&version_data).map_err(|e| e.to_string())?;
-    let os_name = if cfg!(target_os = "windows") { "windows" } else { "linux" };
+    let os_name = crate::utils::minecraft_os_name();
+    let os_arch = crate::utils::minecraft_os_arch();
 
     // Prepare list of libraries to download in parallel
     let mut libraries_to_download: Vec<(String, std::path::PathBuf)> = Vec::new();
 
     for lib in vj.libraries.iter() {
-        if !crate::versions::is_library_allowed(lib, os_name) { continue; }
+        if !crate::versions::is_library_allowed(lib, os_name, os_arch) { continue; }
         if let Some(downloads) = &lib.downloads {
             if let Some(artifact) = &downloads.artifact {
                 let lib_path = instance_dir.join("libraries").join(&artifact.path);
@@ -530,13 +520,14 @@ pub async fn ensure_mod_loader_libraries(instance_dir: &Path, version_id: &str) 
     }
     
     let vj: VersionJson = serde_json::from_str(&version_data).map_err(|e| e.to_string())?;
-    let os_name = if cfg!(target_os = "windows") { "windows" } else { "linux" };
+    let os_name = crate::utils::minecraft_os_name();
+    let os_arch = crate::utils::minecraft_os_arch();
     
     // Prepare list of mod loader libraries to download in parallel
     let mut mod_loader_libraries_to_download: Vec<(String, std::path::PathBuf)> = Vec::new();
 
     for lib in vj.libraries.iter() {
-        if !crate::versions::is_library_allowed(lib, os_name) {
+        if !crate::versions::is_library_allowed(lib, os_name, os_arch) {
             continue;
         }
 

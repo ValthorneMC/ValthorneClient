@@ -34,6 +34,7 @@ pub struct Rule {
 #[derive(Deserialize, Debug, Clone)]
 pub struct OsRule {
     pub name: Option<String>,
+    pub arch: Option<String>,
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -70,24 +71,56 @@ pub struct LibraryArtifact {
 }
 
 // Check if a library is allowed for the current operating system based on rules
-pub fn is_library_allowed(lib: &Library, os_name: &str) -> bool {
+//
+// `os_arch` matters on Apple Silicon: Minecraft ships separate LWJGL natives for
+// `osx`/`x86_64` and `osx`/`arm64`, distinguished only by the arch in the rule.
+pub fn is_library_allowed(lib: &Library, os_name: &str, os_arch: &str) -> bool {
     let rules = match &lib.rules {
         Some(r) => r,
         None => return true,
     };
     let mut allowed = false;
     for rule in rules {
-        let matches = if let Some(os) = &rule.os {
-            if let Some(name) = &os.name {
-                name == os_name
-            } else {
-                true
+        let matches = match &rule.os {
+            Some(os) => {
+                let name_matches = os.name.as_ref().map_or(true, |name| name == os_name);
+                let arch_matches = os.arch.as_ref().map_or(true, |arch| arch == os_arch);
+                name_matches && arch_matches
             }
-        } else {
-            true
+            None => true,
         };
         if matches {
             allowed = rule.action == "allow";
+        }
+    }
+    allowed
+}
+
+/// Same check driven straight off a version JSON value, for callers that work with
+/// raw `serde_json` instead of the typed `Library`
+pub fn is_library_value_allowed(lib: &serde_json::Value, os_name: &str, os_arch: &str) -> bool {
+    let Some(rules) = lib.get("rules").and_then(|r| r.as_array()) else {
+        return true;
+    };
+
+    let mut allowed = false;
+    for rule in rules {
+        let matches = match rule.get("os") {
+            Some(os) => {
+                let name_matches = os
+                    .get("name")
+                    .and_then(|n| n.as_str())
+                    .map_or(true, |name| name == os_name);
+                let arch_matches = os
+                    .get("arch")
+                    .and_then(|a| a.as_str())
+                    .map_or(true, |arch| arch == os_arch);
+                name_matches && arch_matches
+            }
+            None => true,
+        };
+        if matches {
+            allowed = rule.get("action").and_then(|a| a.as_str()) == Some("allow");
         }
     }
     allowed

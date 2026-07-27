@@ -37,13 +37,10 @@ fn should_ignore_config_file(file_path: &str, ignored_patterns: &[String]) -> bo
 
 #[tauri::command]
 pub async fn create_instance_directory(instance_id: String, java_version: String) -> Result<String, String> {
-    let kindly_dir = std::env::var("USERPROFILE")
-        .map(|p| std::path::Path::new(&p).join(".valthorneclient"))
-        .unwrap_or_else(|_| std::path::Path::new(".").join(".valthorneclient"));
+    let kindly_dir = crate::utils::valthorne_dir();
 
     let instance_dir = kindly_dir.join(&instance_id);
-    let runtime_dir = kindly_dir.join("runtime");
-    let java_dir = runtime_dir.join(format!("java-{}", java_version));
+    let java_dir = crate::utils::java_runtime_dir(&java_version);
 
     fs::create_dir_all(&instance_dir).await
         .map_err(|e| format!("Failed to create instance directory: {}", e))?;
@@ -60,11 +57,7 @@ pub async fn get_required_java_version_command(minecraft_version: String) -> Res
 
 #[tauri::command]
 pub async fn check_java_version(version: String) -> Result<String, String> {
-    let kindly_dir = std::env::var("USERPROFILE")
-        .map(|p| std::path::Path::new(&p).join(".valthorneclient"))
-        .unwrap_or_else(|_| std::path::Path::new(".").join(".valthorneclient"));
-    let java_dir = kindly_dir.join("runtime").join(format!("java-{}", version));
-    let java_path = if cfg!(target_os = "windows") { java_dir.join("bin").join("java.exe") } else { java_dir.join("bin").join("java") };
+    let java_path = crate::utils::java_executable_for_version(&version);
     if java_path.exists() { Ok("installed".to_string()) } else { Ok("not_installed".to_string()) }
 }
 
@@ -78,21 +71,30 @@ pub async fn set_downloading_state(state: State<'_, Arc<Mutex<bool>>>, is_downlo
 
 #[tauri::command]
 pub async fn download_java(version: String, app_handle: AppHandle, state: State<'_, Arc<Mutex<bool>>>) -> Result<String, String> {
-    // Set download state
     if let Ok(mut downloading) = state.lock() {
         *downloading = true;
     }
 
+    // Clear the flag on failure too: a download that errored out used to leave the
+    // launcher convinced one was still running, which blocked closing the app
+    let result = download_java_inner(version, app_handle).await;
+
+    if let Ok(mut downloading) = state.lock() {
+        *downloading = false;
+    }
+
+    result
+}
+
+async fn download_java_inner(version: String, app_handle: AppHandle) -> Result<String, String> {
     // Notify that the download started
     let _ = app_handle.emit("java-download-started", serde_json::json!({ "version": version }));
     
-    let kindly_dir = std::env::var("USERPROFILE")
-        .map(|p| std::path::Path::new(&p).join(".valthorneclient"))
-        .unwrap_or_else(|_| std::path::Path::new(".").join(".valthorneclient"));
-    let runtime_dir = kindly_dir.join("runtime");
-    let java_dir = runtime_dir.join(format!("java-{}", version));
+    let runtime_dir = crate::utils::runtime_dir();
+    let java_dir = crate::utils::java_runtime_dir(&version);
     fs::create_dir_all(&runtime_dir).await.map_err(|e| format!("Failed to create runtime directory: {}", e))?;
-    let (os, arch, extension) = if cfg!(target_os = "windows") { ("windows", "x64", "zip") } else if cfg!(target_os = "macos") { ("mac", "x64", "tar.gz") } else { ("linux", "x64", "tar.gz") };
+    let (os, arch) = crate::utils::adoptium_os_and_arch();
+    let extension = crate::utils::adoptium_archive_extension();
     let jre_url = format!("https://api.adoptium.net/v3/binary/latest/{}/ga/{}/{}/jdk/hotspot/normal/eclipse", version, os, arch);
     
     // Emit initial progress
@@ -152,43 +154,30 @@ pub async fn download_java(version: String, app_handle: AppHandle, state: State<
     
     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
     if java_dir.exists() { let _ = std::fs::remove_dir_all(&java_dir); }
-    if temp_file.extension().map_or(false, |e| e == "zip") {
-        let reader = std::fs::File::open(&temp_file).map_err(|e| format!("Open zip failed: {}", e))?;
-        let mut archive = zip::ZipArchive::new(reader).map_err(|e| format!("Read zip failed: {}", e))?;
-        let total_files = archive.len();
-        for i in 0..archive.len() {
-            let mut file = archive.by_index(i).map_err(|e| format!("Zip index failed: {}", e))?;
-            let outpath = runtime_dir.join(file.mangled_name());
-            if file.name().ends_with('/') { std::fs::create_dir_all(&outpath).map_err(|e| format!("Create dir failed: {}", e))?; } else {
-                if let Some(p) = outpath.parent() { std::fs::create_dir_all(p).map_err(|e| format!("Create parent failed: {}", e))?; }
-                let mut outfile = std::fs::File::create(&outpath).map_err(|e| format!("Create file failed: {}", e))?;
-                std::io::copy(&mut file, &mut outfile).map_err(|e| format!("Write file failed: {}", e))?;
-            }
-            // Update extraction progress
-            let extraction_progress = 85 + ((i * 10) / total_files);
+
+    {
+        let app_handle = app_handle.clone();
+        crate::utils::extract_java_archive(&temp_file, &runtime_dir, move |done, total| {
+            // tar.gz reports total = 0 (unknown up front); keep the bar moving anyway
+            let extraction_progress = if total > 0 {
+                85 + ((done * 10) / total)
+            } else {
+                (85 + done / 200).min(94)
+            };
             let _ = app_handle.emit("java-download-progress", serde_json::json!({
                 "percentage": extraction_progress,
                 "status": "Extrayendo Java..."
             }));
-        }
-    } else {
-        #[cfg(not(target_os = "windows"))]
-        { return Err("Unsupported archive format on this OS without external tools".to_string()); }
+        })?;
     }
-    
+
     // Emit final progress
     let _ = app_handle.emit("java-download-progress", serde_json::json!({
         "percentage": 95,
         "status": "Finalizando instalación..."
     }));
-    
-    let all_entries = std::fs::read_dir(&runtime_dir).map_err(|e| format!("Failed to read runtime directory: {}", e))?.collect::<Result<Vec<_>, _>>().map_err(|e| format!("Failed to read directory entries: {}", e))?;
-    let extracted_dirs: Vec<_> = all_entries.into_iter().filter(|entry| { let path = entry.path(); path.is_dir() && path != java_dir }).map(|entry| entry.path()).collect();
-    if let Some(extracted_dir) = extracted_dirs.first() {
-        if java_dir.exists() { let _ = std::fs::remove_dir_all(&java_dir); }
-        std::fs::rename(extracted_dir, &java_dir).map_err(|e| format!("Failed to move Java directory: {}", e))?;
-        for dir in extracted_dirs.iter().skip(1) { let _ = std::fs::remove_dir_all(dir); }
-    } else { return Err("No Java directory found after extraction".to_string()); }
+
+    crate::utils::finalize_extracted_java(&runtime_dir, &java_dir)?;
     let _ = std::fs::remove_file(&temp_file);
     
     // Emit completed progress
@@ -197,20 +186,13 @@ pub async fn download_java(version: String, app_handle: AppHandle, state: State<
         "status": "Completado"
     }));
     let _ = app_handle.emit("java-download-completed", serde_json::json!({ "version": version }));
-    
-    // Clear download state
-    if let Ok(mut downloading) = state.lock() {
-        *downloading = false;
-    }
 
     Ok(format!("Java {} downloaded and installed successfully", version))
 }
 
 #[tauri::command]
 pub async fn get_java_path(version: String) -> Result<String, String> {
-    let kindly_dir = std::env::var("USERPROFILE").map(|p| std::path::Path::new(&p).join(".valthorneclient")).unwrap_or_else(|_| std::path::Path::new(".").join(".valthorneclient"));
-    let java_dir = kindly_dir.join("runtime").join(format!("java-{}", version));
-    let java_path = if cfg!(target_os = "windows") { java_dir.join("bin").join("java.exe") } else { java_dir.join("bin").join("java") };
+    let java_path = crate::utils::java_executable_for_version(&version);
     if java_path.exists() { Ok(java_path.to_string_lossy().to_string()) } else { Err(format!("Java executable not found at: {}", java_path.display())) }
 }
 
@@ -376,9 +358,7 @@ use std::fs::File;
 // ============================================================================
 
 fn get_skins_directory() -> std::path::PathBuf {
-    std::env::var("USERPROFILE")
-        .map(|p| std::path::Path::new(&p).join(".valthorneclient").join("skins"))
-        .unwrap_or_else(|_| std::path::Path::new(".").join(".valthorneclient").join("skins"))
+    crate::utils::valthorne_dir().join("skins")
 }
 
 #[tauri::command]
@@ -523,17 +503,11 @@ pub async fn install_update(app_handle: AppHandle) -> Result<String, String> {
 }
 
 fn launcher_config_path() -> std::path::PathBuf {
-    let base = std::env::var("USERPROFILE")
-        .map(|p| std::path::Path::new(&p).join(".valthorneclient"))
-        .unwrap_or_else(|_| std::path::Path::new(".").join(".valthorneclient"));
-    base.join("launcher.json")
+    crate::utils::valthorne_dir().join("launcher.json")
 }
 
 fn update_state_path() -> std::path::PathBuf {
-    let base = std::env::var("USERPROFILE")
-        .map(|p| std::path::Path::new(&p).join(".valthorneclient"))
-        .unwrap_or_else(|_| std::path::Path::new(".").join(".valthorneclient"));
-    base.join("update_state.json")
+    crate::utils::valthorne_dir().join("update_state.json")
 }
 
 async fn load_launcher_config() -> LauncherConfig {
@@ -717,10 +691,7 @@ pub async fn download_instance_assets(
     if let Ok(mut downloading) = state.lock() {
         *downloading = true;
     }
-    let base = std::env::var("USERPROFILE")
-        .map(|p| std::path::Path::new(&p).join(".valthorneclient"))
-        .unwrap_or_else(|_| std::path::Path::new(".").join(".valthorneclient"));
-    let instance_dir = base.join(&instance_id);
+    let instance_dir = crate::utils::valthorne_dir().join(&instance_id);
     let _ = tokio::fs::create_dir_all(instance_dir.join("libraries")).await;
     let _ = tokio::fs::create_dir_all(instance_dir.join("mods")).await;
     let _ = app_handle.emit("asset-download-progress", serde_json::json!({
@@ -1307,12 +1278,7 @@ pub async fn stop_minecraft_instance(
 
 /// Gets the frontend log file path
 fn get_frontend_log_path() -> Result<std::path::PathBuf, String> {
-    let base = std::env::var("USERPROFILE")
-        .or_else(|_| std::env::var("HOME"))
-        .map(|p| std::path::PathBuf::from(p))
-        .unwrap_or_else(|_| std::path::PathBuf::from("."));
-    
-    let log_dir = base.join(".valthorneclient").join("logs");
+    let log_dir = crate::utils::valthorne_dir().join("logs");
     std::fs::create_dir_all(&log_dir)
         .map_err(|e| format!("Failed to create log directory: {}", e))?;
     

@@ -1,5 +1,4 @@
 use anyhow::Result;
-use std::env;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -83,14 +82,8 @@ pub async fn find_java_executable() -> Result<String, String> {
     }
 
     // If not found, try to use Java 8 as a fallback from runtime
-    let kindly_dir = std::env::var("USERPROFILE")
-        .or_else(|_| std::env::var("HOME"))
-        .map(|p| std::path::PathBuf::from(p))
-        .unwrap_or_else(|_| std::path::PathBuf::from("."))
-        .join(".valthorneclient");
-    
-    let java_8_path = kindly_dir.join("runtime").join("java-8").join("bin").join(if cfg!(target_os = "windows") { "java.exe" } else { "java" });
-    
+    let java_8_path = crate::utils::java_executable_for_version("8");
+
     if java_8_path.exists() {
         return Ok(java_8_path.to_string_lossy().to_string());
     }
@@ -103,18 +96,8 @@ pub async fn find_or_install_java_for_minecraft(mc_version: &str) -> Result<Stri
     let required_java_version = get_required_java_version_for_minecraft(mc_version);
 
     // Check whether the required version already exists in runtime
-    let kindly_dir = std::env::var("USERPROFILE")
-        .or_else(|_| std::env::var("HOME"))
-        .map(|p| std::path::PathBuf::from(p))
-        .unwrap_or_else(|_| std::path::PathBuf::from("."))
-        .join(".valthorneclient");
-    
-    let java_path = kindly_dir
-        .join("runtime")
-        .join(format!("java-{}", required_java_version))
-        .join("bin")
-        .join(if cfg!(target_os = "windows") { "java.exe" } else { "java" });
-    
+    let java_path = crate::utils::java_executable_for_version(&required_java_version.to_string());
+
     if java_path.exists() {
         return Ok(java_path.to_string_lossy().to_string());
     }
@@ -123,11 +106,14 @@ pub async fn find_or_install_java_for_minecraft(mc_version: &str) -> Result<Stri
     log::info!("🔽 Downloading Java {} automatically...", required_java_version);
     
     download_java_silent(required_java_version).await?;
-    
+
+    // Resolve again: the layout is only known once extracted (macOS JDKs live
+    // under Contents/Home instead of bin/)
+    let java_path = crate::utils::java_executable_for_version(&required_java_version.to_string());
     if java_path.exists() {
         return Ok(java_path.to_string_lossy().to_string());
     }
-    
+
     Err(format!(
         "Error al instalar Java {}. Por favor, intente instalarlo manualmente.",
         required_java_version
@@ -138,26 +124,15 @@ pub async fn find_or_install_java_for_minecraft(mc_version: &str) -> Result<Stri
 async fn download_java_silent(java_version: u8) -> Result<(), String> {
     let version_str = java_version.to_string();
     
-    let kindly_dir = std::env::var("USERPROFILE")
-        .or_else(|_| std::env::var("HOME"))
-        .map(|p| std::path::PathBuf::from(p))
-        .unwrap_or_else(|_| std::path::PathBuf::from("."))
-        .join(".valthorneclient");
-    
-    let runtime_dir = kindly_dir.join("runtime");
-    let java_dir = runtime_dir.join(format!("java-{}", version_str));
-    
+    let runtime_dir = crate::utils::runtime_dir();
+    let java_dir = crate::utils::java_runtime_dir(&version_str);
+
     tokio::fs::create_dir_all(&runtime_dir).await
         .map_err(|e| format!("Failed to create runtime directory: {}", e))?;
-    
-    let (os, arch, extension) = if cfg!(target_os = "windows") {
-        ("windows", "x64", "zip")
-    } else if cfg!(target_os = "macos") {
-        ("mac", "x64", "tar.gz")
-    } else {
-        ("linux", "x64", "tar.gz")
-    };
-    
+
+    let (os, arch) = crate::utils::adoptium_os_and_arch();
+    let extension = crate::utils::adoptium_archive_extension();
+
     let jre_url = format!(
         "https://api.adoptium.net/v3/binary/latest/{}/ga/{}/{}/jdk/hotspot/normal/eclipse",
         version_str, os, arch
@@ -189,62 +164,9 @@ async fn download_java_silent(java_version: u8) -> Result<(), String> {
         let _ = std::fs::remove_dir_all(&java_dir);
     }
     
-    if temp_file.extension().map_or(false, |e| e == "zip") {
-        let reader = std::fs::File::open(&temp_file)
-            .map_err(|e| format!("Open zip failed: {}", e))?;
-        let mut archive = zip::ZipArchive::new(reader)
-            .map_err(|e| format!("Read zip failed: {}", e))?;
-        
-        for i in 0..archive.len() {
-            let mut file = archive.by_index(i)
-                .map_err(|e| format!("Zip index failed: {}", e))?;
-            let outpath = runtime_dir.join(file.mangled_name());
-            
-            if file.name().ends_with('/') {
-                std::fs::create_dir_all(&outpath)
-                    .map_err(|e| format!("Create dir failed: {}", e))?;
-            } else {
-                if let Some(p) = outpath.parent() {
-                    std::fs::create_dir_all(p)
-                        .map_err(|e| format!("Create parent failed: {}", e))?;
-                }
-                let mut outfile = std::fs::File::create(&outpath)
-                    .map_err(|e| format!("Create file failed: {}", e))?;
-                std::io::copy(&mut file, &mut outfile)
-                    .map_err(|e| format!("Write file failed: {}", e))?;
-            }
-        }
-    }
-    
-    // Rename the extracted directory to the expected name
-    let all_entries = std::fs::read_dir(&runtime_dir)
-        .map_err(|e| format!("Failed to read runtime directory: {}", e))?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| format!("Failed to read directory entries: {}", e))?;
-    
-    let extracted_dirs: Vec<_> = all_entries
-        .into_iter()
-        .filter(|entry| {
-            let path = entry.path();
-            path.is_dir() && path != java_dir
-        })
-        .map(|entry| entry.path())
-        .collect();
-    
-    if let Some(extracted_dir) = extracted_dirs.first() {
-        if java_dir.exists() {
-            let _ = std::fs::remove_dir_all(&java_dir);
-        }
-        std::fs::rename(extracted_dir, &java_dir)
-            .map_err(|e| format!("Failed to move Java directory: {}", e))?;
-        
-        for dir in extracted_dirs.iter().skip(1) {
-            let _ = std::fs::remove_dir_all(dir);
-        }
-    } else {
-        return Err("No Java directory found after extraction".to_string());
-    }
-    
+    crate::utils::extract_java_archive(&temp_file, &runtime_dir, |_, _| {})?;
+    crate::utils::finalize_extracted_java(&runtime_dir, &java_dir)?;
+
     let _ = std::fs::remove_file(&temp_file);
     
     log::info!("Java {} installed successfully", version_str);
@@ -391,7 +313,17 @@ fn add_library_to_classpath(lib: &serde_json::Value, libs_dir: &Path, jars: &mut
     if !include_in_classpath {
         return Ok(());
     }
-    
+
+    // Skip libraries whose rules exclude this platform, so natives left over from
+    // another OS/arch never leak into the classpath
+    if !crate::versions::is_library_value_allowed(
+        lib,
+        crate::utils::minecraft_os_name(),
+        crate::utils::minecraft_os_arch(),
+    ) {
+        return Ok(());
+    }
+
     // Get library name (Maven coordinates: groupId:artifactId:version[:classifier][:extension])
     if let Some(name) = lib.get("name").and_then(|v| v.as_str()) {
         // Extract key = "groupId:artifactId:classifier" (without version)
@@ -742,13 +674,11 @@ pub fn get_mod_loader_jvm_args(instance_dir: &Path, version_id: Option<&str>, mo
                                 .replace("${launcher_version}", "1.0.0")
                                 .replace("${classpath}", ""); // Passed separately, remove
 
-                            // DO NOT MODIFY ANYTHING - use the JSON as NeoForge provides it
-                            // Filter out incompatible arguments
-                            #[cfg(target_os = "windows")]
-                            {
-                                if processed_arg == "-XstartOnFirstThread" {
-                                    continue;
-                                }
+                            // Filter out incompatible arguments. -XstartOnFirstThread is
+                            // dropped here on every platform: build_minecraft_jvm_args
+                            // already adds it on macOS, and it's invalid elsewhere.
+                            if processed_arg == "-XstartOnFirstThread" {
+                                continue;
                             }
 
                             // Remove -cp and classpath since it's passed separately
@@ -904,6 +834,15 @@ pub fn build_minecraft_jvm_args(
 		format!("-Xms{}G", min_ram_gb as u32),
 		"-XX:+UnlockExperimentalVMOptions".to_string(),
 	];
+
+	// macOS requires GLFW to run on the main thread, otherwise LWJGL aborts on
+	// startup. The dock name keeps the app from showing up as "java".
+	#[cfg(target_os = "macos")]
+	{
+		args.push("-XstartOnFirstThread".to_string());
+		args.push("-Dapple.awt.application.name=Valthorne".to_string());
+	}
+
 	match garbage_collector {
 		"G1" => { args.extend(vec!["-XX:+UseG1GC".into(), "-XX:G1NewSizePercent=20".into(), "-XX:G1ReservePercent=20".into(), "-XX:MaxGCPauseMillis=50".into(), "-XX:G1HeapRegionSize=32M".into()]); },
 		"ZGC" => { args.extend(vec!["-XX:+UseZGC".into(), "-XX:+UnlockExperimentalVMOptions".into()]); },
@@ -923,10 +862,7 @@ pub fn build_minecraft_jvm_args(
 }
 
 pub fn get_instance_directory(instance_id: &str) -> PathBuf {
-	let base = std::env::var("USERPROFILE")
-		.map(|p| std::path::Path::new(&p).join(".valthorneclient"))
-		.unwrap_or_else(|_| std::path::Path::new(".").join(".valthorneclient"));
-	base.join(instance_id)
+	crate::utils::valthorne_dir().join(instance_id)
 }
 
 // Launcher directory configuration
@@ -936,9 +872,7 @@ pub struct LauncherConfig {
 
 impl LauncherConfig {
     pub fn new() -> Result<Self> {
-        let home = env::var("USERPROFILE").unwrap_or_else(|_| "C:\\Users\\Default".to_string());
-        let minecraft_dir = PathBuf::from(home).join(".valthorneclient");
-        Ok(Self { minecraft_dir })
+        Ok(Self { minecraft_dir: crate::utils::valthorne_dir() })
     }
 }
 

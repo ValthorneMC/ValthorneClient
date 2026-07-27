@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import valthorneLogo from '@/assets/valthorne.png';
+import AppBackground from '@/components/AppBackground';
 import { logger } from '@/utils/logger';
 
 const SERVER_IP = 'playvalthorne.com';
@@ -66,23 +67,7 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ instanceName, onPlay, addToast 
 
   return (
     <div className="relative h-full w-full overflow-hidden">
-      {/* Background — piedra oscura + cielo morado de atardecer, inspirado en la ambientación dark fantasy de Valthorne */}
-      <div className="absolute inset-0 z-0">
-        <div
-          className="w-full h-full"
-          style={{
-            background: 'linear-gradient(160deg, #1a1108 0%, #2b1d33 45%, #0d0a08 100%)',
-          }}
-        />
-      </div>
-
-      {/* Acentos ambientales: bruma dorada y morada */}
-      <div className="absolute inset-0 z-5 opacity-20">
-        <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-[#d4af37] rounded-full blur-3xl"></div>
-        <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-[#7c4dbd] rounded-full blur-3xl"></div>
-      </div>
-
-      <div className="absolute inset-0 bg-black/50 z-10" />
+      <AppBackground mistOpacity="strong" overlayClassName="bg-black/50" />
 
       {/* Content */}
       <div className="relative z-20 h-full flex flex-col items-center justify-center gap-8 p-8">

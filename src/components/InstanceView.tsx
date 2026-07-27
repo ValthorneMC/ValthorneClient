@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import LaunchButton from './LaunchButton';
+import AppBackground from '@/components/AppBackground';
 import { logger } from '@/utils/logger';
 
 
@@ -138,7 +139,7 @@ const InstanceView: React.FC<InstanceViewProps> = ({
 
   return (
     <div className="relative h-full w-full overflow-hidden">
-      <div className="absolute inset-0 z-0">
+      <AppBackground>
         {localVideoPath ? (
           <video
             key={localVideoPath}
@@ -171,25 +172,9 @@ const InstanceView: React.FC<InstanceViewProps> = ({
             <source src={localVideoPath} type="video/mp4" />
             Tu navegador no soporta videos HTML5.
           </video>
-        ) : (
-          <>
-            <div
-              className="w-full h-full"
-              style={{
-                background: 'linear-gradient(135deg, #000000 0%, #0a0a0a 50%, #000000 100%)'
-              }}
-            />
-            {/* Subtle Valthorne mist accents in background */}
-            <div className="absolute inset-0 z-5 opacity-10">
-              <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-[#d4af37] rounded-full blur-3xl"></div>
-              <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-[#7c4dbd] rounded-full blur-3xl"></div>
-            </div>
-          </>
-        )}
-      </div>
+        ) : null}
+      </AppBackground>
 
-      <div className="absolute inset-0 bg-black/60 z-10" />
-      
       {/* Título de la instancia - se desvanece cuando el video está cargado */}
       {showTitle && instance && (
         <div 
