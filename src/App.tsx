@@ -148,15 +148,21 @@ const launchInstance = async (
           const data = e.payload as AssetDownloadProgress;
           setDownloadProgress(data);
         });
-        const unlistenCompleted = await listen('asset-download-completed', async () => {
+        const unlistenCompleted = await listen('asset-download-completed', async (e: any) => {
+          if (e?.payload?.phase && e.payload.phase !== 'complete') {
+            return;
+          }
+
           setDownloadProgress({ current: 100, total: 100, percentage: 100, current_file: '', status: 'Completed' });
           try {
             await hideProgressBar();
-            await sendNotificationSafe({
-              title: 'Instancia lista',
-              body: `La instancia "${instance.name}" se ha descargado correctamente`,
-            });
           } catch {}
+
+          await sendNotificationSafe({
+            title: 'Instancia lista',
+            body: `La instancia "${instance.name}" se ha descargado correctamente`,
+          });
+
           unlistenProgress();
           unlistenCompleted();
         });
