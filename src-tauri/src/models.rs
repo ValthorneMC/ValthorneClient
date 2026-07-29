@@ -101,6 +101,13 @@ pub struct UpdateState {
     pub manual_download: bool,
 }
 
+/// Result of `install_update`, so callers don't have to match on message text.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateInstallOutcome {
+    pub installed: bool,
+    pub message: String,
+}
+
 fn default_current_version() -> String {
     env!("CARGO_PKG_VERSION").to_string()
 }

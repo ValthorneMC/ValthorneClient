@@ -3,6 +3,11 @@ import { listen } from '@tauri-apps/api/event';
 import type { UpdateState, UpdateProgress } from '@/types/updater';
 import { logger } from '@/utils/logger';
 
+export interface UpdateInstallOutcome {
+  installed: boolean;
+  message: string;
+}
+
 export interface UpdateInfo {
   version: string;
   available: boolean;
@@ -63,10 +68,10 @@ export class UpdaterService {
   }
   static async installUpdate(): Promise<{ success: boolean; message: string }> {
     try {
-      const result = await invoke<string>('install_update');
+      const result = await invoke<UpdateInstallOutcome>('install_update');
       return {
-        success: result.includes('successfully') || result.includes('No updates available'),
-        message: result
+        success: result.installed,
+        message: result.message
       };
     } catch (error) {
       console.error('Error installing update:', error);

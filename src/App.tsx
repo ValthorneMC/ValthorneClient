@@ -412,13 +412,10 @@ function App() {
 
   const checkForUpdatesOnStartup = async () => {
     try {
+      // Update state for an already-installed version is discarded backend-side,
+      // so download_ready here means a genuinely pending update.
       const state = await UpdaterService.getUpdateState();
-      const currentVersion = state.current_version;
-      
-      if (state.available_version && state.available_version === currentVersion) {
-        await invoke('clear_update_state');
-      }
-      
+
       if (state.download_ready) {
         try {
           const result = await UpdaterService.installUpdate();

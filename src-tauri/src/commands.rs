@@ -5,7 +5,7 @@ use reqwest;
 use tauri::{AppHandle, State};
 use tauri::Emitter;
 use crate::UpdateState;
-use crate::models::{LauncherConfig, RamConfig, AdvancedConfig};
+use crate::models::{LauncherConfig, RamConfig, AdvancedConfig, UpdateInstallOutcome};
 use crate::DistributionManifest;
 use std::sync::{Arc, Mutex};
 use std::collections::HashMap;
@@ -471,13 +471,21 @@ pub async fn check_for_updates(app_handle: AppHandle) -> Result<String, String> 
 }
 
 #[tauri::command]
-pub async fn install_update(app_handle: AppHandle, pending: State<'_, PendingUpdateState>) -> Result<String, String> {
+pub async fn install_update(app_handle: AppHandle, pending: State<'_, PendingUpdateState>) -> Result<UpdateInstallOutcome, String> {
     use tauri_plugin_updater::UpdaterExt;
     let updater = app_handle.updater().map_err(|e| format!("Failed to get updater: {}", e))?;
 
     let update = match updater.check().await {
         Ok(Some(update)) => update,
-        Ok(None) => return Ok("No update available to install".to_string()),
+        Ok(None) => {
+            // Nothing to install: the stored state was pointing at a version
+            // that is already installed, so drop it instead of asking again.
+            clear_update_state().await?;
+            return Ok(UpdateInstallOutcome {
+                installed: false,
+                message: "No update available to install".to_string(),
+            });
+        }
         Err(e) => return Err(format!("Failed to check for updates: {}", e)),
     };
 
@@ -490,6 +498,11 @@ pub async fn install_update(app_handle: AppHandle, pending: State<'_, PendingUpd
         });
 
     app_handle.emit("update-install-start", ()).unwrap_or_default();
+
+    // Clear the pending update *before* installing: on Windows the installer
+    // terminates this process, so anything after `install` may never run. If the
+    // install fails, the next startup check finds the update again.
+    clear_update_state().await.ok();
 
     let result = match cached_bytes {
         Some(bytes) => {
@@ -522,13 +535,6 @@ pub async fn install_update(app_handle: AppHandle, pending: State<'_, PendingUpd
         return Err(e);
     }
 
-    let mut new_state = load_update_state().await;
-    new_state.downloaded = false;
-    new_state.download_ready = false;
-    new_state.manual_download = false;
-    new_state.available_version = None;
-    save_update_state(&new_state).await.ok();
-
     // On Windows the installer exits the app on its own; on macOS and Linux the new
     // bundle is only swapped in place, so the running process has to be restarted.
     #[cfg(not(target_os = "windows"))]
@@ -538,7 +544,10 @@ pub async fn install_update(app_handle: AppHandle, pending: State<'_, PendingUpd
     }
 
     #[cfg(target_os = "windows")]
-    Ok("Update installed successfully".to_string())
+    Ok(UpdateInstallOutcome {
+        installed: true,
+        message: "Update installed successfully".to_string(),
+    })
 }
 
 fn launcher_config_path() -> std::path::PathBuf {
@@ -648,11 +657,45 @@ async fn read_update_state_file() -> Option<UpdateState> {
     serde_json::from_str(&text).ok()
 }
 
+/// Drops update state that advertises a version we are already running.
+///
+/// On Windows the installer terminates the app, so the cleanup at the end of
+/// `install_update` never runs and the stored state keeps claiming an update is
+/// ready to install forever. Returns whether anything was discarded.
+fn discard_stale_update_state(state: &mut UpdateState) -> bool {
+    let Some(available) = state.available_version.as_deref() else {
+        return false;
+    };
+
+    let is_stale = match (
+        semver::Version::parse(available),
+        semver::Version::parse(&state.current_version),
+    ) {
+        (Ok(available), Ok(current)) => available <= current,
+        // Unparseable versions: only discard on an exact match, never guess.
+        _ => available == state.current_version,
+    };
+
+    if is_stale {
+        state.available_version = None;
+        state.downloaded = false;
+        state.download_ready = false;
+        state.manual_download = false;
+    }
+
+    is_stale
+}
+
 async fn load_update_state() -> UpdateState {
     let config = load_launcher_config().await;
-    let real_version = env!("CARGO_PKG_VERSION").to_string();
     let mut state = config.update_state;
-        state.current_version = real_version;
+    state.current_version = env!("CARGO_PKG_VERSION").to_string();
+
+    if discard_stale_update_state(&mut state) {
+        log::info!("Discarded update state for already-installed {}", state.current_version);
+        let _ = save_update_state(&state).await;
+    }
+
     state
 }
 
@@ -669,12 +712,18 @@ pub async fn save_update_state_command(state: UpdateState) -> Result<String, Str
     Ok("ok".to_string())
 }
 
+/// Clears any pending update from the persisted state (`launcher.json`).
+///
+/// Note this is not the legacy `update_state.json`, which is only read once to
+/// migrate into `launcher.json` and is never written again.
 #[tauri::command]
 pub async fn clear_update_state() -> Result<String, String> {
-    let path = update_state_path();
-    if tokio::fs::try_exists(&path).await.map_err(|e| e.to_string())? {
-        tokio::fs::remove_file(&path).await.map_err(|e| e.to_string())?;
-    }
+    let mut state = load_update_state().await;
+    state.available_version = None;
+    state.downloaded = false;
+    state.download_ready = false;
+    state.manual_download = false;
+    save_update_state(&state).await?;
     Ok("ok".to_string())
 }
 
@@ -1537,3 +1586,47 @@ pub async fn save_discord_rpc_config(enabled: bool) -> Result<String, String> {
     Ok("Configuración guardada correctamente".to_string())
 }
 
+
+#[cfg(test)]
+mod update_state_tests {
+    use super::discard_stale_update_state;
+    use crate::models::UpdateState;
+
+    fn state(available: Option<&str>, current: &str) -> UpdateState {
+        UpdateState {
+            available_version: available.map(str::to_string),
+            current_version: current.to_string(),
+            downloaded: true,
+            download_ready: true,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn discards_already_installed_version() {
+        let mut s = state(Some("1.0.8"), "1.0.8");
+        assert!(discard_stale_update_state(&mut s));
+        assert!(!s.download_ready);
+        assert_eq!(s.available_version, None);
+    }
+
+    #[test]
+    fn discards_older_than_installed() {
+        let mut s = state(Some("1.0.7"), "1.0.8");
+        assert!(discard_stale_update_state(&mut s));
+    }
+
+    #[test]
+    fn keeps_genuinely_newer_version() {
+        let mut s = state(Some("1.0.9"), "1.0.8");
+        assert!(!discard_stale_update_state(&mut s));
+        assert!(s.download_ready);
+        assert_eq!(s.available_version.as_deref(), Some("1.0.9"));
+    }
+
+    #[test]
+    fn keeps_state_without_pending_version() {
+        let mut s = state(None, "1.0.8");
+        assert!(!discard_stale_update_state(&mut s));
+    }
+}

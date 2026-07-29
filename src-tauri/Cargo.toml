@@ -1,6 +1,6 @@
 [package]
 name = "valthorneclient"
-version = "1.0.8"
+version = "1.0.9"
 description = "Official client for the Valthorne Minecraft server."
 authors = ["Valthorne"]
 edition = "2024"
@@ -58,4 +58,5 @@ png = "=0.17.16"
 p256 = { version = "0.13", features = ["ecdsa", "pkcs8", "pem", "std"] }
 base64 = "0.22"
 uuid = { version = "1", features = ["v4"] }
+semver = "1"
 
