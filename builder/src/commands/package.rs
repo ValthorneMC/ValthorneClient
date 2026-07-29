@@ -269,19 +269,17 @@ async fn copy_instance_to_distribution(source: &Path, destination: &Path) -> Res
 
 async fn scan_destination_instance(destination: &Path, instance_id: &str) -> Result<InstanceFiles> {
     let settings_path = destination.join("settings.toml");
-    let ignored_files_config = if settings_path.exists() {
-        if let Ok(content) = tokio::fs::read_to_string(&settings_path).await {
-            if let Ok(settings) = toml::from_str::<crate::models::InstanceSettings>(&content) {
-                settings.ignored_files
-            } else {
-                None
-            }
-        } else {
-            None
+    let settings = if settings_path.exists() {
+        match tokio::fs::read_to_string(&settings_path).await {
+            Ok(content) => toml::from_str::<crate::models::InstanceSettings>(&content).ok(),
+            Err(_) => None,
         }
     } else {
         None
     };
+
+    let ignored_files_config = settings.as_ref().and_then(|s| s.ignored_files.clone());
+    let file_targets = settings.map(|s| s.file_targets).unwrap_or_default();
 
     let empty_vec = Vec::<String>::new();
     let ignored_mods = ignored_files_config.as_ref().map(|p| &p.mods).unwrap_or(&empty_vec);
@@ -293,30 +291,36 @@ async fn scan_destination_instance(destination: &Path, instance_id: &str) -> Res
 
     let mods_dir = destination.join("mods");
     if mods_dir.exists() {
-        instance_files.mods = scan_category(&mods_dir, instance_id, "mods", ignored_mods).await?;
+        instance_files.mods = scan_category(&mods_dir, instance_id, "mods", ignored_mods, &file_targets).await?;
     }
 
     let config_dir = destination.join("config");
     if config_dir.exists() {
-        instance_files.configs = scan_category(&config_dir, instance_id, "config", ignored_configs).await?;
+        instance_files.configs = scan_category(&config_dir, instance_id, "config", ignored_configs, &file_targets).await?;
     }
 
     let rp_dir = destination.join("resourcepacks");
     if rp_dir.exists() {
-        let rps = scan_category(&rp_dir, instance_id, "resourcepacks", ignored_resourcepacks).await?;
+        let rps = scan_category(&rp_dir, instance_id, "resourcepacks", ignored_resourcepacks, &file_targets).await?;
         if !rps.is_empty() { instance_files.resourcepacks = Some(rps); }
     }
 
     let sp_dir = destination.join("shaderpacks");
     if sp_dir.exists() {
-        let sps = scan_category(&sp_dir, instance_id, "shaderpacks", ignored_shaderpacks).await?;
+        let sps = scan_category(&sp_dir, instance_id, "shaderpacks", ignored_shaderpacks, &file_targets).await?;
         if !sps.is_empty() { instance_files.shaderpacks = Some(sps); }
     }
 
     Ok(instance_files)
 }
 
-async fn scan_category(dir: &Path, instance_id: &str, category: &str, _ignored_patterns: &[String]) -> Result<Vec<FileEntry>> {
+async fn scan_category(
+    dir: &Path,
+    instance_id: &str,
+    category: &str,
+    _ignored_patterns: &[String],
+    file_targets: &[crate::models::FileTarget],
+) -> Result<Vec<FileEntry>> {
     let mut files = Vec::new();
     for entry in WalkDir::new(dir).into_iter().filter_map(|e| e.ok()) {
         let path = entry.path();
@@ -330,16 +334,18 @@ async fn scan_category(dir: &Path, instance_id: &str, category: &str, _ignored_p
         let md5 = calculate_file_md5(path).await?;
         let size = get_file_size(path).await?;
         let url = format!("instances/{}/{}/{}", instance_id, category, relative_str);
+        let manifest_path = format!("{}/{}", category, relative_str);
+        let target = crate::utils::resolve_target(&manifest_path, file_targets);
 
         files.push(FileEntry {
             name: path.file_name().unwrap().to_string_lossy().to_string(),
-            path: format!("{}/{}", category, relative_str),
+            path: manifest_path,
             url,
             sha256,
             md5: Some(md5),
             size: Some(size),
             required: Some(true),
-            target: if category == "config" { Some(format!("config/{}", relative_str)) } else { None },
+            target: Some(target),
         });
     }
     Ok(files)

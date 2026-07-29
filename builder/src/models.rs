@@ -95,6 +95,19 @@ pub struct InstanceSettings {
     pub launch_settings: LaunchSettings,
     #[serde(default)]
     pub ignored_files: Option<IgnoredFilesConfig>,
+    /// Reglas de colocacion: donde se instala cada archivo dentro de la instancia.
+    /// Sin regla, la instancia replica la estructura del workspace.
+    #[serde(default)]
+    pub file_targets: Vec<FileTarget>,
+}
+
+/// Los archivos cuya ruta de manifest (`config/options.txt`, `mods/x.jar`, ...)
+/// coincide con `pattern` se instalan en `dest`, relativo a la raiz de la
+/// instancia. `dest = ""` es la propia raiz. Gana la primera regla que coincida.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FileTarget {
+    pub pattern: String,
+    pub dest: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -44,25 +44,26 @@ pub async fn run() -> Result<()> {
     let ignored_configs = settings.ignored_files.as_ref().map(|p| &p.configs).unwrap_or(&empty_vec);
     let ignored_resourcepacks = settings.ignored_files.as_ref().map(|p| &p.resourcepacks).unwrap_or(&empty_vec);
     let ignored_shaderpacks = settings.ignored_files.as_ref().map(|p| &p.shaderpacks).unwrap_or(&empty_vec);
+    let file_targets = settings.file_targets.clone();
 
     let mods_dir = instance_dir.join("mods");
     if mods_dir.exists() {
         println!("Escaneando directorio de mods...");
-        instance_files.mods = scan_directory(&mods_dir, INSTANCE_ID, "mods", ignored_mods).await?;
+        instance_files.mods = scan_directory(&mods_dir, INSTANCE_ID, "mods", ignored_mods, &file_targets).await?;
         println!("   Encontrados {} archivos de mods", instance_files.mods.len());
     }
 
     let config_dir = instance_dir.join("config");
     if config_dir.exists() {
         println!("Escaneando directorio de config...");
-        instance_files.configs = scan_directory(&config_dir, INSTANCE_ID, "config", ignored_configs).await?;
+        instance_files.configs = scan_directory(&config_dir, INSTANCE_ID, "config", ignored_configs, &file_targets).await?;
         println!("   Encontrados {} archivos de config", instance_files.configs.len());
     }
 
     let resourcepacks_dir = instance_dir.join("resourcepacks");
     if resourcepacks_dir.exists() {
         println!("Escaneando directorio de resourcepacks...");
-        let resourcepacks = scan_directory(&resourcepacks_dir, INSTANCE_ID, "resourcepacks", ignored_resourcepacks).await?;
+        let resourcepacks = scan_directory(&resourcepacks_dir, INSTANCE_ID, "resourcepacks", ignored_resourcepacks, &file_targets).await?;
         if !resourcepacks.is_empty() {
             instance_files.resourcepacks = Some(resourcepacks);
             println!("   Encontrados {} resourcepacks", instance_files.resourcepacks.as_ref().unwrap().len());
@@ -72,7 +73,7 @@ pub async fn run() -> Result<()> {
     let shaderpacks_dir = instance_dir.join("shaderpacks");
     if shaderpacks_dir.exists() {
         println!("Escaneando directorio de shaderpacks...");
-        let shaderpacks = scan_directory(&shaderpacks_dir, INSTANCE_ID, "shaderpacks", ignored_shaderpacks).await?;
+        let shaderpacks = scan_directory(&shaderpacks_dir, INSTANCE_ID, "shaderpacks", ignored_shaderpacks, &file_targets).await?;
         if !shaderpacks.is_empty() {
             instance_files.shaderpacks = Some(shaderpacks);
             println!("   Encontrados {} shaderpacks", instance_files.shaderpacks.as_ref().unwrap().len());
@@ -147,7 +148,13 @@ pub async fn run() -> Result<()> {
     Ok(())
 }
 
-async fn scan_directory(dir: &Path, instance_id: &str, category: &str, ignored_patterns: &[String]) -> Result<Vec<FileEntry>> {
+async fn scan_directory(
+    dir: &Path,
+    instance_id: &str,
+    category: &str,
+    ignored_patterns: &[String],
+    file_targets: &[crate::models::FileTarget],
+) -> Result<Vec<FileEntry>> {
     let mut files = Vec::new();
 
     for entry in WalkDir::new(dir).into_iter().filter_map(|e| e.ok()) {
@@ -180,20 +187,18 @@ async fn scan_directory(dir: &Path, instance_id: &str, category: &str, ignored_p
         let md5 = calculate_file_md5(path).await?;
         let size = get_file_size(path).await?;
         let url = format!("instances/{}/{}/{}", instance_id, category, relative_path);
+        let manifest_path = format!("{}/{}", category, relative_path);
+        let target = crate::utils::resolve_target(&manifest_path, file_targets);
 
         let file_entry = FileEntry {
             name: filename,
-            path: format!("{}/{}", category, relative_path),
+            path: manifest_path,
             url,
             sha256: hash,
             md5: Some(md5),
             size: Some(size),
             required: Some(true),
-            target: if category == "config" {
-                Some(format!("config/{}", relative_path))
-            } else {
-                None
-            },
+            target: Some(target),
         };
 
         files.push(file_entry);

@@ -935,10 +935,13 @@ pub async fn download_instance_assets(
             } else { 
                 format!("{}/{}", base.trim_end_matches('/'), config_file.url.trim_start_matches('/')) 
             };
-            let mut rel = config_file.target.clone().unwrap_or(config_file.path.clone());
-            if rel == "config/options.txt" { rel = "options.txt".to_string(); }
-            if rel.starts_with("config/config/") { rel = rel.replacen("config/config/", "config/", 1); }
-            else if rel.starts_with("config/") { rel = rel.replacen("config/", "config/", 1); }
+            let rel = crate::instances::normalize_install_path(
+                config_file.target.as_deref().unwrap_or(&config_file.path),
+            );
+            if rel.is_empty() {
+                log::warn!("Skipping config with invalid target: {}", config_file.path);
+                continue;
+            }
             expected_configs.insert(rel.clone());
             
             if !rel.contains('/') {

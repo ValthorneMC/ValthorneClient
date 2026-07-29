@@ -97,29 +97,32 @@ pub fn create_asset_from_file_entry(file_entry: &FileEntry, instance_id: &str, d
     }
 }
 
-pub fn get_local_file_path(instance_dir: &Path, file_path: &str) -> Result<PathBuf, String> {
-    let normalized = file_path.trim_start_matches('/');
-    let without_files = if normalized.starts_with("files/") { &normalized[6..] } else { normalized };
+/// Normalizes a manifest-declared install path into an instance-relative path.
+///
+/// Placement is decided by the builder (`target` in the manifest); this only
+/// strips legacy prefixes and rejects traversal, since the manifest is remote.
+pub fn normalize_install_path(manifest_target: &str) -> String {
+    let mut parts: Vec<&str> = manifest_target
+        .split('/')
+        .filter(|part| !matches!(*part, "" | "." | ".."))
+        .collect();
 
-    let mut parts: Vec<&str> = without_files.split('/').collect();
-    if parts.is_empty() {
-        return Err(format!("Invalid file path: {}", file_path));
+    if parts.first() == Some(&"files") {
+        parts.remove(0);
     }
-
-    let file_name = parts.last().copied().unwrap_or("");
-
-    if (without_files.starts_with("config/") || without_files.starts_with("config/config/"))
-        && (file_name.eq_ignore_ascii_case("options.txt") || file_name.eq_ignore_ascii_case("servers.dat"))
-    {
-        return Ok(instance_dir.join(file_name));
-    }
-
-    if parts.len() >= 2 && parts[0] == "config" && parts[1] == "config" {
+    while parts.len() >= 2 && parts[0] == "config" && parts[1] == "config" {
         parts.remove(1);
     }
 
-    let target_path = PathBuf::from(parts.join("/"));
-    Ok(instance_dir.join(target_path))
+    parts.join("/")
+}
+
+pub fn get_local_file_path(instance_dir: &Path, file_path: &str) -> Result<PathBuf, String> {
+    let rel = normalize_install_path(file_path);
+    if rel.is_empty() {
+        return Err(format!("Invalid file path: {}", file_path));
+    }
+    Ok(instance_dir.join(rel))
 }
 
 pub async fn download_file(url: &str, file_path: &Path) -> Result<(), String> {
@@ -281,11 +284,8 @@ pub async fn save_manifest_history(instance_dir: &Path, instance: &crate::models
     }
     
     for config_file in &instance.files.configs {
-        let mut rel = config_file.target.clone().unwrap_or(config_file.path.clone());
-        if rel == "config/options.txt" { rel = "options.txt".to_string(); }
-        if rel.starts_with("config/config/") { rel = rel.replacen("config/config/", "config/", 1); }
-        else if rel.starts_with("config/") { rel = rel.replacen("config/", "config/", 1); }
-        
+        let rel = normalize_install_path(config_file.target.as_deref().unwrap_or(&config_file.path));
+
         // If it's at the root, add it to root_files
         if !rel.contains('/') {
             history_files.root_files.push(rel.clone());
@@ -1116,4 +1116,27 @@ pub async fn ensure_assets_present_with_progress(
     })).buffer_unordered(parallel).collect().await;
     for result in results { if let Err(e) = result { eprintln!("Warning: Mojang asset download error: {}", e); } }
     Ok(ai.id)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_install_path;
+
+    #[test]
+    fn keeps_manifest_declared_placement() {
+        assert_eq!(normalize_install_path("options.txt"), "options.txt");
+        assert_eq!(normalize_install_path("config/xaero/settings.txt"), "config/xaero/settings.txt");
+    }
+
+    #[test]
+    fn strips_legacy_prefixes() {
+        assert_eq!(normalize_install_path("/files/config/a.json"), "config/a.json");
+        assert_eq!(normalize_install_path("config/config/a.json"), "config/a.json");
+    }
+
+    #[test]
+    fn rejects_traversal() {
+        assert_eq!(normalize_install_path("../../evil.txt"), "evil.txt");
+        assert_eq!(normalize_install_path("config/../../evil.txt"), "config/evil.txt");
+    }
 }

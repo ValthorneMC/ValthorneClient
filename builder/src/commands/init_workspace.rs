@@ -1,7 +1,7 @@
 use anyhow::Result;
 use tokio::fs;
 use std::path::Path;
-use crate::models::{InstanceSettings, ModLoader, LaunchSettings};
+use crate::models::{InstanceSettings, ModLoader, LaunchSettings, FileTarget};
 
 /// ID fijo de la (única) instancia de Valthorne. El launcher es de un solo
 /// servidor/mundo, así que no hace falta gestionar múltiples instancias.
@@ -54,6 +54,12 @@ pub async fn run(workspace: &str) -> Result<()> {
             }),
             launch_settings: LaunchSettings::default(),
             ignored_files: None,
+            // Minecraft lee estos dos desde la raiz de la instancia, no desde
+            // config/. Se declaran aqui para que el builder los coloque bien.
+            file_targets: vec![
+                FileTarget { pattern: "config/options.txt".to_string(), dest: String::new() },
+                FileTarget { pattern: "config/servers.dat".to_string(), dest: String::new() },
+            ],
         };
 
         let settings_toml = toml::to_string_pretty(&settings)?;
