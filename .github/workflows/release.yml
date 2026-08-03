@@ -67,6 +67,9 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
 
+      - name: Check translations
+        run: pnpm i18n:check
+
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
         env:

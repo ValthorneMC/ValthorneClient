@@ -49,7 +49,11 @@
     "createUpdaterArtifacts": true,
     "windows": {
       "wix": {
-        "language": "es-ES"
+        "language": "en-US"
+      },
+      "nsis": {
+        "languages": ["English", "Spanish"],
+        "displayLanguageSelector": false
       }
     },
     "icon": [
