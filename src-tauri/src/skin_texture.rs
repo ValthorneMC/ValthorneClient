@@ -15,23 +15,20 @@ pub fn is_png(data: &[u8]) -> bool {
 /// instead of an opaque 400 from Mojang's skin upload endpoint.
 pub fn normalize_skin_texture(data: &[u8]) -> Result<Vec<u8>, String> {
     if !is_png(data) {
-        return Err("El archivo no es un PNG válido".to_string());
+        return Err("error.skin.not_png".to_string());
     }
 
     let mut decoder = png::Decoder::new(Cursor::new(data));
     decoder.set_transformations(png::Transformations::normalize_to_color8());
     let mut reader = decoder
         .read_info()
-        .map_err(|e| format!("No se pudo leer el PNG: {}", e))?;
+        .map_err(|e| format!("error.skin.not_png|{}", e))?;
 
     let info = reader.info();
     let width = info.width;
     let height = info.height;
     if width != 64 || (height != 64 && height != 32) {
-        return Err(format!(
-            "La skin debe medir 64x64 (o 64x32 para skins clásicas antiguas), pero mide {}x{}",
-            width, height
-        ));
+        return Err(format!("error.skin.invalid_size|{}x{}", width, height));
     }
     let is_legacy = height == 32;
     let color_type = info.color_type;

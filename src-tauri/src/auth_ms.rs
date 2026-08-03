@@ -33,7 +33,7 @@ const LOGIN_WINDOW_LABEL: &str = "ms-login";
 ///
 /// Window creation itself has to happen on a separate OS thread: doing it directly inside an
 /// async command deadlocks on Windows (see the `tauri::WebviewWindowBuilder::new` docs).
-async fn open_login_window(app: tauri::AppHandle, auth_request_uri: &str) -> Result<String, String> {
+async fn open_login_window(app: tauri::AppHandle, auth_request_uri: &str, window_title: String) -> Result<String, String> {
     use tauri::Manager;
 
     let auth_url: tauri::Url = auth_request_uri
@@ -49,7 +49,7 @@ async fn open_login_window(app: tauri::AppHandle, auth_request_uri: &str) -> Res
 
     std::thread::spawn(move || {
         let window = tauri::WebviewWindowBuilder::new(&app_for_window, LOGIN_WINDOW_LABEL, tauri::WebviewUrl::External(auth_url))
-            .title("Iniciar sesión con Microsoft")
+            .title(&window_title)
             .inner_size(500.0, 650.0)
             .resizable(true)
             .center()
@@ -58,7 +58,7 @@ async fn open_login_window(app: tauri::AppHandle, auth_request_uri: &str) -> Res
                 if url_str.starts_with(crate::msa_sisu::AUTH_REPLY_URL) {
                     if let Some(sender) = nav_tx.lock().unwrap().take() {
                         let result = extract_auth_code_from_url(url_str)
-                            .ok_or_else(|| "No se encontró el código de autorización en la respuesta de Microsoft".to_string());
+                            .ok_or_else(|| "error.auth.no_code".to_string());
                         let _ = sender.send(result);
                     }
                     // Don't actually navigate the embedded window to the (blank) reply page.
@@ -73,14 +73,14 @@ async fn open_login_window(app: tauri::AppHandle, auth_request_uri: &str) -> Res
                 win.on_window_event(move |event| {
                     if let tauri::WindowEvent::CloseRequested { .. } = event {
                         if let Some(sender) = close_tx.lock().unwrap().take() {
-                            let _ = sender.send(Err("Inicio de sesión cancelado".to_string()));
+                            let _ = sender.send(Err("error.auth.cancelled".to_string()));
                         }
                     }
                 });
             }
             Err(e) => {
                 if let Some(sender) = close_tx.lock().unwrap().take() {
-                    let _ = sender.send(Err(format!("No se pudo abrir la ventana de inicio de sesión: {}", e)));
+                    let _ = sender.send(Err(format!("error.auth.window_failed|{}", e)));
                 }
             }
         }
@@ -88,8 +88,8 @@ async fn open_login_window(app: tauri::AppHandle, auth_request_uri: &str) -> Res
 
     let result = match tokio::time::timeout(std::time::Duration::from_secs(180), rx).await {
         Ok(Ok(result)) => result,
-        Ok(Err(_)) => Err("Error interno esperando el inicio de sesión".to_string()),
-        Err(_) => Err("Tiempo de espera agotado para iniciar sesión".to_string()),
+        Ok(Err(_)) => Err("error.auth.internal".to_string()),
+        Err(_) => Err("error.auth.timeout".to_string()),
     };
 
     if let Some(window) = app.get_webview_window(LOGIN_WINDOW_LABEL) {
@@ -100,12 +100,12 @@ async fn open_login_window(app: tauri::AppHandle, auth_request_uri: &str) -> Res
 }
 
 #[tauri::command]
-pub async fn start_microsoft_auth(app: tauri::AppHandle) -> Result<crate::AuthSession, String> {
+pub async fn start_microsoft_auth(app: tauri::AppHandle, window_title: String) -> Result<crate::AuthSession, String> {
     let sessions = crate::sessions::SessionManager::new(&app)
         .map_err(|e| format!("Failed to initialize session storage: {}", e))?;
 
     let flow = crate::msa_sisu::login_begin(&sessions).await?;
-    let code = open_login_window(app, &flow.auth_request_uri).await?;
+    let code = open_login_window(app, &flow.auth_request_uri, window_title).await?;
     let result = crate::msa_sisu::login_finish(&code, flow, &sessions).await?;
 
     let profile = get_minecraft_profile_from_token(&result.access_token)

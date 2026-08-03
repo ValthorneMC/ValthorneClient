@@ -55,7 +55,7 @@ pub fn initialize_discord_rpc() -> Result<(), String> {
     }
 }
 
-pub fn update_discord_presence(state: &str, details: &str) -> Result<(), String> {
+pub fn update_discord_presence(state: &str, details: &str, button_label: &str) -> Result<(), String> {
     log::info!("Updating Discord presence - State: {}, Details: {}", state, details);
 
     let mut client_guard = DISCORD_CLIENT.lock().map_err(|e| e.to_string())?;
@@ -100,7 +100,7 @@ pub fn update_discord_presence(state: &str, details: &str) -> Result<(), String>
         };
 
         activity = activity.buttons(vec![
-            activity::Button::new("Únete al Discord", "https://discord.playvalthorne.com")
+            activity::Button::new(button_label, "https://discord.playvalthorne.com")
         ]);
 
         match client.set_activity(activity) {

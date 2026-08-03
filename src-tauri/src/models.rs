@@ -289,6 +289,9 @@ pub struct LauncherConfig {
     pub ram_config: RamConfig,
     #[serde(default)]
     pub advanced_config: AdvancedConfig,
+    // UI language preference: "auto" or a supported language code
+    #[serde(default = "default_language")]
+    pub language: String,
     #[serde(default)]
     pub last_updated: String,
 }
@@ -318,6 +321,7 @@ fn default_max_ram() -> f64 { 4.0 }
 fn default_gc() -> String { "G1".to_string() }
 fn default_width() -> u32 { 1280 }
 fn default_height() -> u32 { 720 }
+fn default_language() -> String { "auto".to_string() }
 
 impl Default for LauncherConfig {
     fn default() -> Self {
@@ -333,6 +337,7 @@ impl Default for LauncherConfig {
             },
             ram_config: RamConfig::default(),
             advanced_config: AdvancedConfig::default(),
+            language: default_language(),
             last_updated: chrono::Utc::now().to_rfc3339(),
         }
     }

@@ -368,6 +368,7 @@ pub fn run() {
         .plugin(tauri_plugin_sql::Builder::default().build())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .plugin(tauri_plugin_os::init())
         .setup(|app| {
             // Set the window title with the version from Cargo.toml
             if let Some(window) = app.get_webview_window("main") {
@@ -411,6 +412,8 @@ pub fn run() {
             load_ram_config,
             save_advanced_config,
             load_advanced_config,
+            save_language,
+            load_language,
             check_for_updates,
             install_update,
             get_update_state,

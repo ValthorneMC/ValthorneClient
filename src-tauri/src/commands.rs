@@ -100,7 +100,7 @@ async fn download_java_inner(version: String, app_handle: AppHandle) -> Result<S
     // Emit initial progress
     let _ = app_handle.emit("java-download-progress", serde_json::json!({
         "percentage": 0,
-        "status": "Descargando Java..."
+        "status": "Downloading Java"
     }));
     
     let client = reqwest::Client::new();
@@ -114,7 +114,7 @@ async fn download_java_inner(version: String, app_handle: AppHandle) -> Result<S
     // Emit progress during download
     let _ = app_handle.emit("java-download-progress", serde_json::json!({
         "percentage": 10,
-        "status": "Descargando Java..."
+        "status": "Downloading Java"
     }));
     
     let mut bytes = Vec::new();
@@ -131,7 +131,7 @@ async fn download_java_inner(version: String, app_handle: AppHandle) -> Result<S
                     let percentage = ((downloaded * 100) / total_size).min(80);
                     let _ = app_handle.emit("java-download-progress", serde_json::json!({
                         "percentage": percentage,
-                        "status": "Descargando Java..."
+                        "status": "Downloading Java"
                     }));
                 }
             }
@@ -149,7 +149,7 @@ async fn download_java_inner(version: String, app_handle: AppHandle) -> Result<S
     // Emit extraction progress
     let _ = app_handle.emit("java-download-progress", serde_json::json!({
         "percentage": 85,
-        "status": "Extrayendo Java..."
+        "status": "Extracting Java"
     }));
     
     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
@@ -166,7 +166,7 @@ async fn download_java_inner(version: String, app_handle: AppHandle) -> Result<S
             };
             let _ = app_handle.emit("java-download-progress", serde_json::json!({
                 "percentage": extraction_progress,
-                "status": "Extrayendo Java..."
+                "status": "Extracting Java"
             }));
         })?;
     }
@@ -174,7 +174,7 @@ async fn download_java_inner(version: String, app_handle: AppHandle) -> Result<S
     // Emit final progress
     let _ = app_handle.emit("java-download-progress", serde_json::json!({
         "percentage": 95,
-        "status": "Finalizando instalación..."
+        "status": "Finalizing installation"
     }));
 
     crate::utils::finalize_extracted_java(&runtime_dir, &java_dir)?;
@@ -183,7 +183,7 @@ async fn download_java_inner(version: String, app_handle: AppHandle) -> Result<S
     // Emit completed progress
     let _ = app_handle.emit("java-download-progress", serde_json::json!({
         "percentage": 100,
-        "status": "Completado"
+        "status": "Completed"
     }));
     let _ = app_handle.emit("java-download-completed", serde_json::json!({ "version": version }));
 
@@ -1176,7 +1176,7 @@ pub async fn download_instance_assets(
         "total": 100,
         "percentage": 100,
         "current_file": "",
-        "status": "Completado"
+        "status": "Completed"
     }));
     let _ = app_handle.emit("asset-download-completed", serde_json::json!({ "phase": "complete" }));
     
@@ -1310,6 +1310,19 @@ pub async fn save_ram_config(min_ram: f64, max_ram: f64) -> Result<(), String> {
 pub async fn load_ram_config() -> Result<(f64, f64), String> {
     let config = load_launcher_config().await;
     Ok((config.ram_config.min_ram, config.ram_config.max_ram))
+}
+
+#[tauri::command]
+pub async fn save_language(language: String) -> Result<(), String> {
+    let mut config = load_launcher_config().await;
+    config.language = language;
+    save_launcher_config_internal(&config).await
+}
+
+#[tauri::command]
+pub async fn load_language() -> Result<String, String> {
+    let config = load_launcher_config().await;
+    Ok(config.language)
 }
 
 #[tauri::command]
@@ -1528,8 +1541,8 @@ pub async fn initialize_discord_rpc() -> Result<String, String> {
 }
 
 #[tauri::command]
-pub async fn update_discord_presence(state: String, details: String) -> Result<String, String> {
-    crate::discord_rpc::update_discord_presence(&state, &details)
+pub async fn update_discord_presence(state: String, details: String, button_label: String) -> Result<String, String> {
+    crate::discord_rpc::update_discord_presence(&state, &details, &button_label)
         .map(|_| "Discord presence updated successfully".to_string())
 }
 
@@ -1547,17 +1560,17 @@ pub async fn is_discord_rpc_enabled() -> Result<bool, String> {
 #[tauri::command]
 pub async fn load_discord_rpc_config() -> Result<crate::DiscordRpcConfig, String> {
     let config_path = dirs::config_dir()
-        .ok_or("No se pudo obtener el directorio de configuración")?
+        .ok_or("error.config.dir_unavailable")?
         .join("valthorneclient")
         .join("discord_rpc.json");
 
     if config_path.exists() {
         let content = tokio::fs::read_to_string(&config_path)
             .await
-            .map_err(|e| format!("Error leyendo configuración: {}", e))?;
+            .map_err(|e| format!("error.config.read_failed|{}", e))?;
 
         serde_json::from_str(&content)
-            .map_err(|e| format!("Error parseando configuración: {}", e))
+            .map_err(|e| format!("error.config.parse_failed|{}", e))
     } else {
         Ok(crate::DiscordRpcConfig::default())
     }
@@ -1568,22 +1581,22 @@ pub async fn save_discord_rpc_config(enabled: bool) -> Result<String, String> {
     let config = crate::DiscordRpcConfig { enabled };
 
     let config_dir = dirs::config_dir()
-        .ok_or("No se pudo obtener el directorio de configuración")?
+        .ok_or("error.config.dir_unavailable")?
         .join("valthorneclient");
 
     tokio::fs::create_dir_all(&config_dir)
         .await
-        .map_err(|e| format!("Error creando directorio: {}", e))?;
+        .map_err(|e| format!("error.config.write_failed|{}", e))?;
 
     let config_path = config_dir.join("discord_rpc.json");
     let content = serde_json::to_string_pretty(&config)
-        .map_err(|e| format!("Error serializando configuración: {}", e))?;
+        .map_err(|e| format!("error.config.write_failed|{}", e))?;
 
     tokio::fs::write(&config_path, content)
         .await
-        .map_err(|e| format!("Error guardando configuración: {}", e))?;
+        .map_err(|e| format!("error.config.write_failed|{}", e))?;
 
-    Ok("Configuración guardada correctamente".to_string())
+    Ok("Configuration saved successfully".to_string())
 }
 
 
