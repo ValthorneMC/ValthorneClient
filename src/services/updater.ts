@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
+import { getVersion } from '@tauri-apps/api/app';
 import type { UpdateState, UpdateProgress } from '@/types/updater';
 import { logger } from '@/utils/logger';
 import { i18n } from '@/i18n';
@@ -103,22 +104,11 @@ export class UpdaterService {
     } catch (error) {
       void logger.error('Error getting current version', error, 'UpdaterService');
       try {
-        const resp = await fetch('/package.json');
-        if (resp.ok) {
-          const pkg = await resp.json();
-          if (pkg && pkg.version) return pkg.version;
-        }
+        return await getVersion();
       } catch (e1) {
+        void logger.error('Error getting version from Tauri API', e1, 'UpdaterService');
+        return '0.0.0';
       }
-      try {
-        const resp2 = await fetch('/tauri.conf.json');
-        if (resp2.ok) {
-          const conf = await resp2.json();
-          if (conf && conf.version) return conf.version;
-        }
-      } catch (e2) {
-      }
-      return '0.1.0';
     }
   }
 
