@@ -9,6 +9,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { useDropzone } from 'react-dropzone';
 import { logger } from '@/utils/logger';
 import { translateBackendError } from '@/i18n';
+import AppBackground from '@/components/AppBackground';
 
 interface SkinManagerProps {
   currentUser: any;
@@ -47,8 +48,7 @@ interface ProfileResponse {
 // spinner again every time the skins tab is entered during the same launcher session.
 const capesSessionCache: Record<string, CapeData[]> = {};
 
-// Crops the visible "back" panel of a Minecraft cape texture (64x32px, region 1,1-10,16)
-// to show it as a crisp 2D sprite instead of the full texture sheet.
+
 const CAPE_SPRITE_SCALE = 6;
 const CAPE_SPRITE_WIDTH = 10 * CAPE_SPRITE_SCALE;
 const CAPE_SPRITE_HEIGHT = 16 * CAPE_SPRITE_SCALE;
@@ -69,8 +69,7 @@ const CapeSprite: React.FC<{ url: string; alt: string }> = ({ url, alt }) => (
   />
 );
 
-// Function to refresh avatars by adding a timestamp (avatar-provider images only,
-// not all images). Syncs the skin between the sidebar and the dynamic island.
+
 const refreshAvatars = () => {
   const timestamp = Date.now();
 
@@ -93,10 +92,6 @@ export const SkinManager: React.FC<SkinManagerProps> = ({ currentUser, addToast 
   const { t: tCommon } = useTranslation('common');
   const [skins, setSkins] = useState<SkinData[]>([]);
   const [selectedSkinId, setSelectedSkinId] = useState<string | null>(null);
-  // The skin Mojang currently reports as active when it doesn't match anything in the
-  // local library (changed via minecraft.net, another launcher, etc). When this is set,
-  // it - not `selectedSkinId` - is what the left preview panel and the "current skin"
-  // card on the right show, so the two panels never disagree with what's actually equipped.
   const [externalActiveSkin, setExternalActiveSkin] = useState<SkinData | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [isLoadingInitial, setIsLoadingInitial] = useState(true);
@@ -849,15 +844,10 @@ export const SkinManager: React.FC<SkinManagerProps> = ({ currentUser, addToast 
       : '';
 
   return (
-    <div className="h-full w-full relative overflow-hidden bg-gradient-to-br from-black via-[#0a0512] to-black">
-      {/* Fondo ambiental dorado/morado */}
-      <div className="pointer-events-none absolute inset-0 overflow-hidden">
-        <div className="absolute -top-40 -left-40 h-96 w-96 rounded-full bg-[#d4af37]/10 blur-[120px]" />
-        <div className="absolute -bottom-40 -right-40 h-[28rem] w-[28rem] rounded-full bg-[#7c4dbd]/20 blur-[130px]" />
-      </div>
+    <div className="h-full w-full relative overflow-hidden">
+      <AppBackground />
 
-      <div className="relative z-10 h-full min-h-0 grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,2.5fr)] gap-8 p-6 overflow-hidden">
-        {/* Preview panel (Modrinth style: title + large sticky model) */}
+      <div className="relative z-20 h-full min-h-0 grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,2.5fr)] gap-8 p-6 overflow-hidden">
         <div className="flex flex-col min-h-0 overflow-hidden">
           <h1 className="font-heading text-4xl font-black tracking-wide text-white drop-shadow-lg mb-4">
             {t('title')}
