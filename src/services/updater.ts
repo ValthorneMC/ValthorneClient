@@ -2,6 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import type { UpdateState, UpdateProgress } from '@/types/updater';
 import { logger } from '@/utils/logger';
+import { i18n } from '@/i18n';
 
 export interface UpdateInstallOutcome {
   installed: boolean;
@@ -45,7 +46,7 @@ export class UpdaterService {
       return {
         version: '',
         available: false,
-        message: 'Error al verificar actualizaciones'
+        message: i18n.t('checkFailed', { ns: 'updater' })
       };
     }
   }
@@ -62,7 +63,7 @@ export class UpdaterService {
       void logger.error('Error downloading update', error, 'UpdaterService');
       return {
         success: false,
-        message: 'Error al descargar la actualización'
+        message: i18n.t('downloadFailed', { ns: 'updater' })
       };
     }
   }
@@ -77,7 +78,7 @@ export class UpdaterService {
       console.error('Error installing update:', error);
       return {
         success: false,
-        message: 'Error al instalar la actualización'
+        message: i18n.t('installFailed', { ns: 'updater' })
       };
     }
   }
@@ -87,7 +88,7 @@ export class UpdaterService {
     if (!state.download_ready) {
       return {
         success: false,
-        message: 'No hay actualización lista para instalar. Descarga la actualización primero.'
+        message: i18n.t('notDownloaded', { ns: 'updater' })
       };
     }
 
@@ -136,7 +137,7 @@ export class UpdaterService {
             current: event.payload as number,
             total: 100,
             percentage: event.payload as number,
-            status: 'Descargando...'
+            status: i18n.t('progress.downloading', { ns: 'updater' })
           });
         }
       });
@@ -148,7 +149,7 @@ export class UpdaterService {
             current: 0,
             total: 100,
             percentage: 0,
-            status: 'Iniciando descarga...'
+            status: i18n.t('progress.starting', { ns: 'updater' })
           });
         }
       });
@@ -160,7 +161,7 @@ export class UpdaterService {
             current: 100,
             total: 100,
             percentage: 100,
-            status: 'Descarga completada'
+            status: i18n.t('progress.downloadComplete', { ns: 'updater' })
           });
         }
       });
@@ -172,7 +173,7 @@ export class UpdaterService {
             current: 0,
             total: 100,
             percentage: 0,
-            status: 'Instalando actualización...'
+            status: i18n.t('progress.installing', { ns: 'updater' })
           });
         }
       });
@@ -184,7 +185,7 @@ export class UpdaterService {
             current: 100,
             total: 100,
             percentage: 100,
-            status: 'Instalación completada'
+            status: i18n.t('progress.installComplete', { ns: 'updater' })
           });
         }
       });

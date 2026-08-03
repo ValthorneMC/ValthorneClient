@@ -1,4 +1,6 @@
 import React, { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { Copy } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import valthorneLogo from '@/assets/valthorne.png';
 import AppBackground from '@/components/AppBackground';
@@ -20,6 +22,7 @@ interface HomeScreenProps {
 }
 
 const HomeScreen: React.FC<HomeScreenProps> = ({ instanceName, onPlay, addToast }) => {
+  const { t } = useTranslation('home');
   const [status, setStatus] = useState<ServerStatus | null>(null);
   const [logoVisible, setLogoVisible] = useState(false);
 
@@ -58,10 +61,10 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ instanceName, onPlay, addToast 
   const handleCopyIp = async () => {
     try {
       await navigator.clipboard.writeText(SERVER_IP);
-      addToast('IP copiada al portapapeles', 'success', 2000);
+      addToast(t('ipCopied'), 'success', 2000);
     } catch (error) {
       void logger.error('Error copying server IP', error, 'HomeScreen');
-      addToast('No se pudo copiar la IP', 'error');
+      addToast(t('ipCopyFailed'), 'error');
     }
   };
 
@@ -97,34 +100,22 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ instanceName, onPlay, addToast 
             className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white/5 border border-[#d4af37]/20 hover:bg-white/10 hover:border-[#d4af37]/50 transition-all duration-200 group"
           >
             <span className="text-[#e8dcc0]/90 font-mono text-sm">{SERVER_IP}</span>
-            <svg
-              className="w-4 h-4 text-white/50 group-hover:text-[#d4af37] transition-colors"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
-              />
-            </svg>
+            <Copy className="w-4 h-4 text-white/50 group-hover:text-[#d4af37] transition-colors" />
           </button>
 
           {/* Player count */}
           <div className="text-sm">
             {status === null ? (
-              <span className="text-white/40">Consultando servidor...</span>
+              <span className="text-white/40">{t('checkingServer')}</span>
             ) : status.online ? (
               <span className="text-white/70">
                 <span className="text-[#d4af37] font-semibold">{status.players_online}</span>
                 {' / '}
                 <span className="font-semibold">{status.players_max}</span>
-                {' jugadores online'}
+                {` ${t('playersOnline')}`}
               </span>
             ) : (
-              <span className="text-white/40">Servidor offline</span>
+              <span className="text-white/40">{t('serverOffline')}</span>
             )}
           </div>
 
@@ -138,7 +129,9 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ instanceName, onPlay, addToast 
                      cursor-pointer hover:scale-[1.03] neon-glow-cyan-hover"
           >
             <div className="absolute inset-0 bg-gradient-to-r from-transparent via-[#d4af37]/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-            <span className="relative z-10">Jugar {instanceName ? `a ${instanceName}` : ''}</span>
+            <span className="relative z-10">
+              {instanceName ? t('playInstance', { instance: instanceName }) : t('play')}
+            </span>
           </button>
         </div>
       </div>

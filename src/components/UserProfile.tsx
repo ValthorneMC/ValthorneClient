@@ -1,4 +1,6 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
+import { LogOut, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import Tooltip from '@/components/ui/Tooltip';
 import { Avatar } from '@/components/Avatar';
@@ -33,6 +35,7 @@ const UserProfile: React.FC<UserProfileProps> = ({
   onLogoutAccount,
   onAddAccount
 }) => {
+  const { t } = useTranslation('common');
 
   return (
     <div className="flex items-center space-x-2 glass-card rounded-2xl px-4 py-2 border border-white/10 select-none backdrop-blur-md">
@@ -67,30 +70,26 @@ const UserProfile: React.FC<UserProfileProps> = ({
       </div>
 
       
-      <Tooltip content="Añadir cuenta" side="top">
+      <Tooltip content={t('account.add')} side="top">
         <Button
           onClick={onAddAccount}
           size="sm"
           variant="ghost"
           className="w-8 h-8 p-0 text-white/60 hover:text-white glass-light hover:bg-white/10 rounded-xl border border-white/10 hover:border-[#d4af37]/30 cursor-pointer select-none transition-all duration-300 ease-out hover:scale-105"
         >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-          </svg>
+          <Plus className="w-4 h-4" />
         </Button>
       </Tooltip>
 
       
-      <Tooltip content="Cerrar sesión" side="top">
+      <Tooltip content={t('account.logout')} side="top">
         <Button
           onClick={() => currentAccount && onLogoutAccount(currentAccount.id)}
           size="sm"
           variant="ghost"
           className="w-8 h-8 p-0 text-white/60 hover:text-[#7c4dbd] glass-light hover:bg-[#7c4dbd]/10 rounded-xl border border-white/10 hover:border-[#7c4dbd]/30 cursor-pointer select-none transition-all duration-300 ease-out hover:scale-105 neon-glow-magenta-hover"
         >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-          </svg>
+          <LogOut className="w-4 h-4" />
         </Button>
       </Tooltip>
     </div>

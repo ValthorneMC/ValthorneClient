@@ -1,19 +1,19 @@
 import React from 'react';
 
 interface AppBackgroundProps {
-  /** Reemplaza el degradado base (por ejemplo, un vídeo de instancia) */
+  /** Replaces the base gradient (for example, an instance video) */
   children?: React.ReactNode;
-  /** Opacidad de la bruma de acento. La home la usa algo más marcada. */
+  /** Accent mist opacity. The home screen uses a slightly stronger one. */
   mistOpacity?: 'subtle' | 'strong';
   /** Oscurecimiento sobre el fondo, para que el contenido mantenga contraste */
   overlayClassName?: string;
 }
 
 /**
- * Fondo compartido por todas las vistas del launcher.
+ * Background shared by every launcher view.
  *
- * Home, instancia y ajustes usaban cada una su propio degradado (la home iba en
- * marrón/morado mientras el resto era negro), así que el fondo saltaba al navegar.
+ * Home, instance and settings each had their own gradient (home was brown/purple
+ * while the rest were black), so the background jumped while navigating.
  */
 const AppBackground: React.FC<AppBackgroundProps> = ({
   children,

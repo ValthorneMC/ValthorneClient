@@ -1,6 +1,29 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
+import {
+  CircleCheck,
+  CircleHelp,
+  Download,
+  FolderOpen,
+  Languages,
+  Monitor,
+  MoveHorizontal,
+  MoveVertical,
+  RefreshCw,
+  ScrollText,
+  TriangleAlert,
+  Zap,
+} from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import AppBackground from '@/components/AppBackground';
+import LanguageFlag from '@/components/LanguageFlag';
+import {
+  AUTO_LANGUAGE,
+  SUPPORTED_LANGUAGES,
+  changeLanguage,
+  loadLanguagePreference,
+  type LanguagePreference,
+} from '@/i18n';
 import { UpdaterService } from '@/services/updater';
 import type { UpdateState, UpdateProgress } from '@/types/updater';
 import { logger } from '@/utils/logger';
@@ -11,6 +34,10 @@ interface SettingsViewProps {
 }
 
 const SettingsView: React.FC<SettingsViewProps> = ({ addToast, scrollToUpdates = false }) => {
+  const { t } = useTranslation('settings');
+  const { t: tCommon } = useTranslation('common');
+  const { t: tUpdater } = useTranslation('updater');
+  const [language, setLanguage] = useState<LanguagePreference>(AUTO_LANGUAGE);
   const [isVisible, setIsVisible] = useState(false);
   const updatesSectionRef = React.useRef<HTMLDivElement>(null);
   const [minRam, setMinRam] = useState(2.0);
@@ -44,6 +71,20 @@ const SettingsView: React.FC<SettingsViewProps> = ({ addToast, scrollToUpdates =
   useEffect(() => {
     setIsVisible(true);
   }, []);
+
+  // Load the persisted language preference
+  useEffect(() => {
+    void loadLanguagePreference().then(setLanguage);
+  }, []);
+
+  const handleLanguageChange = async (preference: LanguagePreference) => {
+    setLanguage(preference);
+    try {
+      await changeLanguage(preference);
+    } catch (error) {
+      void logger.error('Error saving language preference', error, 'SettingsView');
+    }
+  };
 
   // Scroll to updates section when requested
   useEffect(() => {
@@ -115,7 +156,8 @@ const SettingsView: React.FC<SettingsViewProps> = ({ addToast, scrollToUpdates =
         // Set up progress callback
         UpdaterService.setProgressCallback((progress) => {
           setDownloadProgress(progress);
-          if (progress.status.includes('completada') || progress.status.includes('completado')) {
+          // Compare progress, never the translated status text
+          if (progress.percentage >= 100) {
             setIsDownloadingUpdate(false);
             // Refresh update state
             UpdaterService.getUpdateState().then(setUpdateState);
@@ -184,12 +226,12 @@ const SettingsView: React.FC<SettingsViewProps> = ({ addToast, scrollToUpdates =
       const newState = await UpdaterService.getUpdateState();
       setUpdateState(newState);
       if (result.available && addToast) {
-        addToast(`Actualización ${result.version} disponible`, 'info');
+        addToast(t('updates.available', { version: result.version }), 'info');
       }
     } catch (error) {
       void logger.error('Error checking for updates', error, 'SettingsView');
       if (addToast) {
-        addToast('Error al verificar actualizaciones', 'error');
+        addToast(tUpdater('checkFailed'), 'error');
       }
     } finally {
       setIsCheckingUpdates(false);
@@ -205,17 +247,17 @@ const SettingsView: React.FC<SettingsViewProps> = ({ addToast, scrollToUpdates =
         const newState = await UpdaterService.getUpdateState();
         setUpdateState(newState);
         if (addToast) {
-          addToast('Actualización descargada. Lista para instalar.', 'success');
+          addToast(tUpdater('downloaded'), 'success');
         }
       } else {
         if (addToast) {
-          addToast('Error al descargar la actualización', 'error');
+          addToast(tUpdater('downloadFailed'), 'error');
         }
       }
     } catch (error) {
       void logger.error('Error downloading update', error, 'SettingsView');
       if (addToast) {
-        addToast('Error al descargar la actualización', 'error');
+        addToast(tUpdater('downloadFailed'), 'error');
       }
     } finally {
       setIsDownloadingUpdate(false);
@@ -236,17 +278,17 @@ const SettingsView: React.FC<SettingsViewProps> = ({ addToast, scrollToUpdates =
         const result = await UpdaterService.installUpdate();
         if (result.success) {
           if (addToast) {
-            addToast('Actualización instalada. Reiniciando...', 'success');
+            addToast(tUpdater('installed'), 'success');
           }
         } else {
           if (addToast) {
-            addToast('Error al instalar la actualización', 'error');
+            addToast(tUpdater('installFailed'), 'error');
           }
         }
       } catch (error) {
         void logger.error('Error installing update', error, 'SettingsView');
         if (addToast) {
-          addToast('Error al instalar la actualización', 'error');
+          addToast(tUpdater('installFailed'), 'error');
         }
       }
   };
@@ -335,7 +377,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ addToast, scrollToUpdates =
               <h1 className={`font-heading text-4xl font-black tracking-wide text-white drop-shadow-lg transition-all duration-500 ${
                 isScrolled ? 'opacity-80 scale-95' : 'opacity-100 scale-100'
               }`}>
-                Ajustes
+                {t('title')}
               </h1>
             </div>
             
@@ -362,6 +404,44 @@ const SettingsView: React.FC<SettingsViewProps> = ({ addToast, scrollToUpdates =
              isScrolled ? 'opacity-100' : 'opacity-0'
            }`}></div>
           
+          {/* Language Section */}
+          <div className="max-w-4xl mx-auto mb-6">
+            <div className="glass-card rounded-2xl p-6">
+              <div className="flex items-center gap-3 mb-6">
+                <div className="w-8 h-8 flex items-center justify-center">
+                  <Languages className="w-6 h-6 text-[#d4af37]" />
+                </div>
+                <h2 className="font-heading text-2xl font-bold text-white">{t('language.title')}</h2>
+              </div>
+
+              <p className="text-white/50 text-sm mb-4">{t('language.description')}</p>
+
+              <div className="flex flex-wrap gap-3">
+                {[
+                  { code: AUTO_LANGUAGE, label: t('language.auto') },
+                  ...SUPPORTED_LANGUAGES,
+                ].map((option) => (
+                  <button
+                    key={option.code}
+                    onClick={() => void handleLanguageChange(option.code as LanguagePreference)}
+                    className={`flex items-center gap-2.5 px-4 py-2.5 rounded-xl border transition-all duration-300 cursor-pointer ${
+                      language === option.code
+                        ? 'border-[#d4af37] bg-[#d4af37]/10 text-white'
+                        : 'border-white/10 bg-white/5 text-white/70 hover:border-white/25 hover:text-white'
+                    }`}
+                  >
+                    <LanguageFlag
+                      language={option.code as LanguagePreference}
+                      title={option.label}
+                      className="w-5 h-auto rounded-[2px] shrink-0"
+                    />
+                    <span className="font-medium text-sm">{option.label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
           {/* Java Configuration Section */}
           <div className="max-w-4xl mx-auto">
             <div className="glass-card rounded-2xl p-6">
@@ -377,18 +457,18 @@ const SettingsView: React.FC<SettingsViewProps> = ({ addToast, scrollToUpdates =
                     <path d="M95 345c62 4 158-3 160-32 0 0-4 11-51 20-53 10-119 9-158 2 0 0 8 7 49 10" fill="#5382A1"/>
                   </svg>
                 </div>
-                <h2 className="font-heading text-2xl font-bold text-white">Configuración de Java</h2>
+                <h2 className="font-heading text-2xl font-bold text-white">{t('java.title')}</h2>
               </div>
 
               {/* RAM Configuration */}
               <div className="space-y-6">
                 <div>
-                  <h3 className="text-lg font-semibold text-white mb-4">Memoria RAM</h3>
+                  <h3 className="text-lg font-semibold text-white mb-4">{t('java.ram')}</h3>
                   
                   {/* Min RAM Slider */}
                   <div className="mb-6">
                     <div className="flex items-center justify-between mb-2">
-                      <label className="text-white/80 font-medium">RAM Mínima</label>
+                      <label className="text-white/80 font-medium">{t('java.minRam')}</label>
                       <span className="text-white font-bold transition-all duration-100 ease-out">{displayMinRam.toFixed(displayMinRam % 1 === 0 ? 0 : 1)} GB</span>
                     </div>
                     <div className="relative ">
@@ -408,7 +488,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ addToast, scrollToUpdates =
                   {/* Max RAM Slider */}
                   <div className="mb-4">
                     <div className="flex items-center justify-between mb-2">
-                      <label className="text-white/80 font-medium">RAM Máxima</label>
+                      <label className="text-white/80 font-medium">{t('java.maxRam')}</label>
                       <span className="text-white font-bold transition-all duration-100 ease-out">{displayMaxRam.toFixed(displayMaxRam % 1 === 0 ? 0 : 1)} GB</span>
                     </div>
                     <div className="relative">
@@ -434,26 +514,20 @@ const SettingsView: React.FC<SettingsViewProps> = ({ addToast, scrollToUpdates =
               {/* Section Header */}
               <div className="flex items-center gap-3 mb-6">
                 <div className="w-8 h-8 flex items-center justify-center">
-                  <svg className="w-6 h-6 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
-                  </svg>
+                  <Zap className="w-6 h-6 text-purple-400" />
                 </div>
-                <h2 className="font-heading text-2xl font-bold text-white">Configuración de la JVM</h2>
+                <h2 className="font-heading text-2xl font-bold text-white">{t('jvm.title')}</h2>
               </div>
 
               <div className="space-y-6">
                  {/* Garbage Collector */}
                  <div>
                    <div className="flex items-center gap-2 mb-3">
-                     <label className="text-white/80 font-medium">Garbage Collector</label>
+                     <label className="text-white/80 font-medium">{t('jvm.garbageCollector')}</label>
                      <div className="relative group">
                        <button className="faq-button-small">
-                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512" className="w-4 h-4">
-                           <path d="M80 160c0-35.3 28.7-64 64-64h32c35.3 0 64 28.7 64 64v3.6c0 21.8-11.1 42.1-29.4 53.8l-42.2 27.1c-25.2 16.2-40.4 44.1-40.4 74V320c0 17.7 14.3 32 32 32s32-14.3 32-32v-1.4c0-8.2 4.2-15.8 11-20.2l42.2-27.1c36.6-23.6 58.8-64.1 58.8-107.7V160c0-70.7-57.3-128-128-128H144C73.3 32 16 89.3 16 160c0 17.7 14.3 32 32 32s32-14.3 32-32zm80 320a40 40 0 1 0 0-80 40 40 0 1 0 0 80z" fill="white"/>
-                         </svg>
-                         <span className="tooltip-small">
-                           El Garbage Collector (GC) libera memoria no utilizada en Java. G1 es balanceado, ZGC tiene pausas ultra-bajas para gaming, y Parallel maximiza el rendimiento.
-                         </span>
+                         <CircleHelp className="w-4 h-4" />
+                         <span className="tooltip-small">{t('jvm.gcHint')}</span>
                        </button>
                      </div>
                    </div>
@@ -473,9 +547,9 @@ const SettingsView: React.FC<SettingsViewProps> = ({ addToast, scrollToUpdates =
                       >
                         <div className="text-sm font-semibold">{gc}</div>
                         <div className="text-xs opacity-70">
-                          {gc === 'G1' && 'Recomendado'}
-                          {gc === 'ZGC' && 'Baja latencia'}
-                          {gc === 'Parallel' && 'Alto rendimiento'}
+                          {gc === 'G1' && t('jvm.gcRecommended')}
+                          {gc === 'ZGC' && t('jvm.gcLowLatency')}
+                          {gc === 'Parallel' && t('jvm.gcHighPerformance')}
                         </div>
                       </button>
                     ))}
@@ -484,7 +558,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ addToast, scrollToUpdates =
 
                 {/* JVM Arguments */}
                 <div>
-                  <label className="block text-white/80 font-medium mb-3">Argumentos JVM Adicionales</label>
+                  <label className="block text-white/80 font-medium mb-3">{t('jvm.extraArgs')}</label>
                   <textarea
                     value={jvmArgs}
                     onChange={(e) => setJvmArgs(e.target.value)}
@@ -493,7 +567,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ addToast, scrollToUpdates =
                     className="w-full h-20 bg-white/5 border border-white/10 rounded-lg px-4 py-3 text-white placeholder-white/50 focus:outline-none focus:border-purple-400 focus:bg-white/10 transition-all duration-200 resize-none"
                   />
                   <div className="text-xs text-red-500/50 mt-2 font-bold italic shadow-lg">
-                    Utiliza este campo solo si sabes lo que estás haciendo.
+                    {t('jvm.extraArgsHint')}
                   </div>
                 </div>
               </div>
@@ -505,26 +579,22 @@ const SettingsView: React.FC<SettingsViewProps> = ({ addToast, scrollToUpdates =
               {/* Section Header */}
               <div className="flex items-center gap-3 mb-6">
                 <div className="w-8 h-8 flex items-center justify-center">
-                <svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 20 20">
-                <path fill="#FFA500" d="M6 3a3 3 0 0 0-3 3v8a3 3 0 0 0 3 3h3.6a5.465 5.465 0 0 1-.393-1H6a2 2 0 0 1-2-2V7h12v2.207c.349.099.683.23 1 .393V6a3 3 0 0 0-3-3H6ZM4 6a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2H4Zm8.065 5.442a2 2 0 0 1-1.43 2.478l-.462.118a4.734 4.734 0 0 0 .01 1.016l.35.083a2 2 0 0 1 1.456 2.519l-.127.422c.258.204.537.378.835.518l.325-.344a2 2 0 0 1 2.91.002l.337.358c.292-.135.568-.302.822-.498l-.156-.556a2 2 0 0 1 1.43-2.479l.46-.117a4.7 4.7 0 0 0-.01-1.017l-.348-.082a2 2 0 0 1-1.456-2.52l.126-.421a4.318 4.318 0 0 0-.835-.519l-.325.344a2 2 0 0 1-2.91-.001l-.337-.358a4.31 4.31 0 0 0-.821.497l.156.557Zm2.434 4.058a1 1 0 1 1 0-2a1 1 0 0 1 0 2Z"/>
-                </svg>
+                <Monitor className="w-6 h-6 text-[#d4af37]" />
                 </div>
-                <h2 className="font-heading text-2xl font-bold text-white">Configuración de Ventana</h2>
+                <h2 className="font-heading text-2xl font-bold text-white">{t('window.title')}</h2>
               </div>
 
               <div className="space-y-6">
                 {/* Resolution */}
                 <div>
                    <div>
-                     <label className="block text-white/80 font-medium mb-3">Resolución</label>
+                     <label className="block text-white/80 font-medium mb-3">{t('window.resolution')}</label>
                      <div className="grid grid-cols-2 gap-4">
                        <div>
                          <label className="flex items-center gap-2 text-white/60 text-sm mb-2">
-                           Ancho
+                           {t('window.width')}
                            <span className="inline-flex items-center">
-                             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24">
-                                <path fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M22 12H2m20 0l-4 4m4-4l-4-4M2 12l4 4m-4-4l4-4"/>
-                             </svg>
+                             <MoveHorizontal className="w-[18px] h-[18px]" />
                            </span>
                          </label>
                          <input
@@ -543,11 +613,9 @@ const SettingsView: React.FC<SettingsViewProps> = ({ addToast, scrollToUpdates =
                        </div>
                        <div>
                          <label className="flex items-center gap-2 text-white/60 text-sm mb-2">
-                           Alto
+                           {t('window.height')}
                            <span className="inline-flex items-center">
-                           <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 15 15">
-    <path fill="currentColor" fillRule="evenodd" d="M7.181 1.682a.45.45 0 0 1 .637 0l2.5 2.5a.45.45 0 0 1-.637.636L7.95 3.086v8.828l1.731-1.732a.45.45 0 0 1 .637.636l-2.5 2.5a.45.45 0 0 1-.637 0l-2.5-2.5a.45.45 0 0 1 .637-.636l1.732 1.732V3.086L5.317 4.818a.45.45 0 0 1-.637-.636l2.5-2.5Z" clipRule="evenodd"/>
-</svg>
+                           <MoveVertical className="w-[18px] h-[18px]" />
                            </span>
                          </label>
                            
@@ -578,34 +646,26 @@ const SettingsView: React.FC<SettingsViewProps> = ({ addToast, scrollToUpdates =
               <div className="flex items-center justify-between mb-6">
                 <div className="flex items-center gap-3">
                   <div className="w-8 h-8 flex items-center justify-center">
-                    <svg className="w-6 h-6 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                    </svg>
+                    <RefreshCw className="w-6 h-6 text-green-400" />
                   </div>
-                  <h2 className="font-heading text-2xl font-bold text-white">Actualizaciones</h2>
+                  <h2 className="font-heading text-2xl font-bold text-white">{t('updates.title')}</h2>
                 </div>
                 
                 {/* Status Badge - A la derecha del header */}
                 {updateState?.download_ready ? (
                   <div className="px-4 py-2 bg-blue-500/20 border border-blue-500/30 rounded-lg flex items-center gap-2">
-                    <svg className="w-5 h-5 text-blue-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                    <span className="text-blue-300 font-medium">Actualización lista para instalar</span>
+                    <CircleCheck className="w-5 h-5 text-blue-300" />
+                    <span className="text-blue-300 font-medium">{t('updates.readyToInstall')}</span>
                   </div>
                 ) : updateState?.available_version ? (
                   <div className="px-4 py-2 bg-orange-500/20 border border-orange-500/30 rounded-lg flex items-center gap-2">
-                    <svg className="w-5 h-5 text-orange-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                    </svg>
-                    <span className="text-orange-300 font-medium">Nueva versión disponible: {updateState.available_version}</span>
+                    <TriangleAlert className="w-5 h-5 text-orange-300" />
+                    <span className="text-orange-300 font-medium">{t('updates.newVersionAvailable', { version: updateState.available_version })}</span>
                   </div>
                 ) : (
                   <div className="px-4 py-2 bg-green-500/20 border border-green-500/30 rounded-lg flex items-center gap-2">
-                    <svg className="w-5 h-5 text-green-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                    <span className="text-green-300 font-medium">Tienes la última versión</span>
+                    <CircleCheck className="w-5 h-5 text-green-300" />
+                    <span className="text-green-300 font-medium">{t('updates.upToDate')}</span>
                   </div>
                 )}
               </div>
@@ -616,7 +676,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ addToast, scrollToUpdates =
                 {downloadProgress && (
                   <div>
                     <div className="flex items-center justify-between mb-2">
-                      <label className="text-white/80 font-medium">Progreso</label>
+                      <label className="text-white/80 font-medium">{t('updates.progress')}</label>
                       <span className="text-white text-sm">{downloadProgress.status}</span>
                     </div>
                     <div className="w-full bg-white/10 rounded-full h-2">
@@ -667,14 +727,12 @@ const SettingsView: React.FC<SettingsViewProps> = ({ addToast, scrollToUpdates =
                     {isCheckingUpdates ? (
                       <>
                         <div className="w-4 h-4 border-2 border-[#d4af37] border-t-transparent rounded-full animate-spin"></div>
-                        Verificando...
+                        {t('updates.checking')}
                       </>
                     ) : (
                       <>
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                        </svg>
-                        Verificar actualizaciones
+                        <RefreshCw className="w-4 h-4" />
+                        {t('updates.check')}
                       </>
                     )}
                   </button>
@@ -710,14 +768,12 @@ const SettingsView: React.FC<SettingsViewProps> = ({ addToast, scrollToUpdates =
                       {isDownloadingUpdate ? (
                         <>
                           <div className="w-4 h-4 border-2 border-orange-300 border-t-transparent rounded-full animate-spin"></div>
-                          Descargando...
+                          {t('updates.downloading')}
                         </>
                       ) : (
                         <>
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                          </svg>
-                          Descargar actualización
+                          <Download className="w-4 h-4" />
+                          {t('updates.download')}
                         </>
                       )}
                     </button>
@@ -745,10 +801,8 @@ const SettingsView: React.FC<SettingsViewProps> = ({ addToast, scrollToUpdates =
                         e.currentTarget.style.cursor = 'pointer';
                       }}
                     >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>
-                      Instalar actualización
+                      <CircleCheck className="w-4 h-4" />
+                      {t('updates.install')}
                     </button>
                   )}
                 </div>                
@@ -759,11 +813,9 @@ const SettingsView: React.FC<SettingsViewProps> = ({ addToast, scrollToUpdates =
             <div className="bg-black/20 backdrop-blur-sm rounded-2xl border border-white/10 p-6 mt-6">
               <div className="flex items-center gap-3 mb-6">
                 <div className="w-8 h-8 flex items-center justify-center">
-                  <svg className="w-6 h-6 text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                  </svg>
+                  <ScrollText className="w-6 h-6 text-yellow-400" />
                 </div>
-                <h2 className="font-heading text-2xl font-bold text-white">Logs</h2>
+                <h2 className="font-heading text-2xl font-bold text-white">{t('logs.title')}</h2>
               </div>
 
               <div className="flex gap-3">
@@ -794,10 +846,8 @@ const SettingsView: React.FC<SettingsViewProps> = ({ addToast, scrollToUpdates =
                     e.currentTarget.style.cursor = 'pointer';
                   }}
                 >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
-                  </svg>
-                  Abrir carpeta de frontend
+                  <FolderOpen className="w-4 h-4" />
+                  {t('logs.openFrontendFolder')}
                 </button>
 
                 <button
@@ -827,10 +877,8 @@ const SettingsView: React.FC<SettingsViewProps> = ({ addToast, scrollToUpdates =
                     e.currentTarget.style.cursor = 'pointer';
                   }}
                 >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
-                  </svg>
-                  Abrir carpeta de backend
+                  <FolderOpen className="w-4 h-4" />
+                  {t('logs.openBackendFolder')}
                 </button>
               </div>
             </div>
@@ -843,28 +891,26 @@ const SettingsView: React.FC<SettingsViewProps> = ({ addToast, scrollToUpdates =
                     <path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515a.074.074 0 0 0-.079.037c-.21.375-.445.864-.608 1.25a18.27 18.27 0 0 0-5.487 0a12.64 12.64 0 0 0-.617-1.25a.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057a19.9 19.9 0 0 0 5.993 3.03a.078.078 0 0 0 .084-.028a14.09 14.09 0 0 0 1.226-1.994a.076.076 0 0 0-.041-.106a13.107 13.107 0 0 1-1.872-.892a.077.077 0 0 1-.008-.128a10.2 10.2 0 0 0 .372-.292a.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127a12.299 12.299 0 0 1-1.873.892a.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028a19.839 19.839 0 0 0 6.002-3.03a.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419c0-1.333.956-2.419 2.157-2.419c1.21 0 2.176 1.096 2.157 2.42c0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419c0-1.333.955-2.419 2.157-2.419c1.21 0 2.176 1.096 2.157 2.42c0 1.333-.946 2.418-2.157 2.418z"/>
                   </svg>
                 </div>
-                <h2 className="font-heading text-2xl font-bold text-white">Discord Rich Presence</h2>
+                <h2 className="font-heading text-2xl font-bold text-white">{t('discord.title')}</h2>
               </div>
 
               <div className="space-y-6">
                 <div>
                   <div className="flex items-center justify-between mb-3">
                     <div className="flex items-center gap-2">
-                      <label className="text-white/80 font-medium">Habilitar Discord RPC</label>
+                      <label className="text-white/80 font-medium">{t('discord.enable')}</label>
                       <div className="relative group">
                         <button className="faq-button-small">
-                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512" className="w-4 h-4">
-                            <path d="M80 160c0-35.3 28.7-64 64-64h32c35.3 0 64 28.7 64 64v3.6c0 21.8-11.1 42.1-29.4 53.8l-42.2 27.1c-25.2 16.2-40.4 44.1-40.4 74V320c0 17.7 14.3 32 32 32s32-14.3 32-32v-1.4c0-8.2 4.2-15.8 11-20.2l42.2-27.1c36.6-23.6 58.8-64.1 58.8-107.7V160c0-70.7-57.3-128-128-128H144C73.3 32 16 89.3 16 160c0 17.7 14.3 32 32 32s32-14.3 32-32zm80 320a40 40 0 1 0 0-80 40 40 0 1 0 0 80z" fill="white"/>
-                          </svg>
+                          <CircleHelp className="w-4 h-4" />
                           <span className="tooltip-small">
-                            Muestra el estado del cliente en tu perfil de Discord 
+                            {t('discord.hint')}
                           </span>
                         </button>
                       </div>
                     </div>
                     <div className="flex items-center gap-3">
                       <span className={`text-sm font-medium ${discordRpcEnabled ? 'text-green-400' : 'text-red-400'}`}>
-                        {discordRpcEnabled ? 'Activado' : 'Desactivado'}
+                        {discordRpcEnabled ? t('discord.enabled') : t('discord.disabled')}
                       </span>
                       <button
                         onClick={async () => {
@@ -874,12 +920,12 @@ const SettingsView: React.FC<SettingsViewProps> = ({ addToast, scrollToUpdates =
                             if (newEnabled) {
                               await invoke<string>('initialize_discord_rpc');
                               if (addToast) {
-                                addToast('Discord RPC activado', 'success');
+                                addToast(t('discord.toastEnabled'), 'success');
                               }
                             } else {
                               await invoke('shutdown_discord_rpc');
                               if (addToast) {
-                                addToast('Discord RPC desactivado', 'info');
+                                addToast(t('discord.toastDisabled'), 'info');
                               }
                             }
 
@@ -891,7 +937,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ addToast, scrollToUpdates =
                           } catch (error) {
                             void logger.error('Error toggling Discord RPC', error, 'SettingsView');
                             if (addToast) {
-                              addToast('Error al cambiar estado de Discord RPC', 'error');
+                              addToast(t('discord.toastFailed'), 'error');
                             }
                           }
                         }}
@@ -917,7 +963,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ addToast, scrollToUpdates =
 
       </div>
 
-      {/* Diálogo de confirmación para instalar actualización */}
+      {/* Confirmation dialog for installing the update */}
       {installConfirmOpen && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center">
           <div 
@@ -938,14 +984,12 @@ const SettingsView: React.FC<SettingsViewProps> = ({ addToast, scrollToUpdates =
                   border: '2px solid rgba(234, 88, 12, 0.4)'
                 }}
               >
-                <svg className="w-8 h-8 text-orange-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                </svg>
+                <TriangleAlert className="w-8 h-8 text-orange-300" />
               </div>
               
-              <h3 className="text-2xl font-bold text-white mb-2">Instalar Actualización</h3>
+              <h3 className="text-2xl font-bold text-white mb-2">{t('updates.confirmTitle')}</h3>
               <p className="text-white/80 mb-6">
-                ¿Estás seguro de que quieres instalar la actualización? La aplicación se reiniciará después de la instalación.
+                {t('updates.confirmBody')}
               </p>
               
               <div className="flex gap-3 justify-center">
@@ -967,7 +1011,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ addToast, scrollToUpdates =
                     e.currentTarget.style.boxShadow = '0 4px 16px 0 rgba(0, 0, 0, 0.4)';
                   }}
                 >
-                  Instalar
+                  {t('updates.confirmInstall')}
                 </button>
                 
                 <button
@@ -988,7 +1032,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ addToast, scrollToUpdates =
                     e.currentTarget.style.boxShadow = '0 4px 16px 0 rgba(0, 0, 0, 0.4)';
                   }}
                 >
-                  Cancelar
+                  {tCommon('cancel')}
                 </button>
               </div>
             </div>

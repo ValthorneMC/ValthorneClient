@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { invoke } from '@tauri-apps/api/core';
 import LaunchButton from './LaunchButton';
 import AppBackground from '@/components/AppBackground';
@@ -52,6 +53,7 @@ const InstanceView: React.FC<InstanceViewProps> = ({
   onLaunch,
   isJavaInstalling = false,
 }) => {
+  const { t } = useTranslation('instance');
   const [isVisible, setIsVisible] = useState(false);
   const [localVideoPath, setLocalVideoPath] = useState<string | null>(null);
   const [videoLoaded, setVideoLoaded] = useState(false);
@@ -116,7 +118,7 @@ const InstanceView: React.FC<InstanceViewProps> = ({
     if (videoLoaded) {
       const timer = setTimeout(() => {
         setShowTitle(false);
-      }, 500); // Esperar 500ms antes de empezar a desvanecer
+      }, 500); // Wait 500ms before starting the fade
       return () => clearTimeout(timer);
     }
   }, [videoLoaded]);
@@ -126,10 +128,10 @@ const InstanceView: React.FC<InstanceViewProps> = ({
       <div className={`flex items-center justify-center h-full transition-all duration-500 ${isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
         <div className="text-center">
           <h2 className="text-2xl font-bold text-white mb-4">
-            Instancia no encontrada
+            {t('notFound.title')}
           </h2>
           <p className="text-gray-300">
-            La instancia seleccionada no se pudo cargar.
+            {t('notFound.body')}
           </p>
         </div>
       </div>
@@ -170,12 +172,12 @@ const InstanceView: React.FC<InstanceViewProps> = ({
             }}
           >
             <source src={localVideoPath} type="video/mp4" />
-            Tu navegador no soporta videos HTML5.
+            {t('videoUnsupported')}
           </video>
         ) : null}
       </AppBackground>
 
-      {/* Título de la instancia - se desvanece cuando el video está cargado */}
+      {/* Instance title - fades out once the video is loaded */}
       {showTitle && instance && (
         <div 
           className={`absolute inset-0 z-15 flex items-center justify-center transition-all duration-700 ${
@@ -193,10 +195,10 @@ const InstanceView: React.FC<InstanceViewProps> = ({
 
 
       <div className="relative z-20 h-full flex flex-col">
-        {/* Spacer para empujar contenido abajo */}
+        {/* Spacer to push the content down */}
         <div className="flex-1" />
         
-        {/* Tags y botón al fondo */}
+        {/* Tags and button at the bottom */}
         <div className={`pb-12 flex flex-col items-center gap-6 transition-all duration-700 ${isVisible ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 translate-y-8 scale-95'}`}>
           {/* Tags */}
           <div className="flex items-center justify-center space-x-4 mb-4">
@@ -296,6 +298,7 @@ const InstanceView: React.FC<InstanceViewProps> = ({
 
 
 const PlayTimeStats: React.FC<{ instanceId: string }> = ({ instanceId }) => {
+  const { t } = useTranslation('instance');
   const [totalHours, setTotalHours] = React.useState<number>(0);
   
   React.useEffect(() => {
@@ -345,11 +348,10 @@ const PlayTimeStats: React.FC<{ instanceId: string }> = ({ instanceId }) => {
   if (totalHours < 1.0) return null;
   
   const hours = Math.floor(totalHours);
-  const displayText = `${hours}h`;
-  
+
   return (
     <div className="text-white/30 text-xs font-light opacity-50 transition-opacity hover:opacity-70">
-      {displayText} jugadas
+      {t('hoursPlayed', { count: hours })}
     </div>
   );
 };

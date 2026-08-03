@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
+import { Square } from 'lucide-react';
 import { listen } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
 import { Button } from '@/components/ui/button';
@@ -24,6 +26,8 @@ const LaunchButton: React.FC<LaunchButtonProps> = ({
 	isJavaInstalling = false,
 	instanceId = 'default'
 }) => {
+	const { t } = useTranslation('instance');
+
 	// Initialize with cached state if it exists
 	const getInitialState = () => {
 		const cachedState = launchStateCache.get(instanceId);
@@ -225,7 +229,7 @@ const LaunchButton: React.FC<LaunchButtonProps> = ({
 				);
 			}
 			default:
-				return 'JUGAR';
+				return t('play');
 		}
 	};
 
@@ -329,13 +333,7 @@ const LaunchButton: React.FC<LaunchButtonProps> = ({
 						}}
 						className="w-14 h-14 rounded-full bg-red-600/90 hover:bg-red-700/90 border-2 border-red-400/50 flex items-center justify-center cursor-pointer transition-all duration-200 pointer-events-auto"
 					>
-						<svg 
-							className="w-6 h-6 text-white" 
-							fill="currentColor" 
-							viewBox="0 0 24 24"
-						>
-							<rect x="6" y="6" width="12" height="12" rx="1" />
-						</svg>
+						<Square className="w-6 h-6 text-white" fill="currentColor" />
 					</div>
 				</div>
 			)}

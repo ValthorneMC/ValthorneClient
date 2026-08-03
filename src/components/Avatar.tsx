@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { loadAvatarWithFallback, createAvatarPlaceholder } from '@/services/avatarService';
 
 interface AvatarProps {
@@ -18,6 +19,7 @@ export const Avatar: React.FC<AvatarProps> = ({
   className = '',
   alt
 }) => {
+  const { t } = useTranslation('common');
   const [avatarUrl, setAvatarUrl] = useState<string>(createAvatarPlaceholder(username, size));
   const [isLoading, setIsLoading] = useState(true);
 
@@ -52,7 +54,7 @@ export const Avatar: React.FC<AvatarProps> = ({
   return (
     <img
       src={avatarUrl}
-      alt={alt || `${username}'s avatar`}
+      alt={alt || t('account.avatarAlt', { username })}
       className={className}
       style={{ opacity: isLoading ? 0.8 : 1 }}
     />

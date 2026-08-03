@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 type LoaderVariant = 'text' | 'orbital' | 'simple';
 
@@ -9,10 +10,11 @@ interface LoaderProps {
 }
 
 const Loader: React.FC<LoaderProps> = ({
-  text = "Cargando...",
+  text,
   variant = 'text',
   showReloadAfter = 30
 }) => {
+  const { t } = useTranslation('common');
   if (variant === 'simple') {
     return (
       <div className="flex items-center justify-center">
@@ -48,9 +50,9 @@ const Loader: React.FC<LoaderProps> = ({
 
         {showReload && (
           <div className="text-center animate-fade-in">
-            <p className="text-white/80 text-sm mb-2">¿Llevas mucho tiempo aquí?</p>
+            <p className="text-white/80 text-sm mb-2">{t('loader.stillHere')}</p>
             <button onClick={handleReload} className="text-blue-400 hover:text-blue-300 underline text-sm transition-colors duration-200">
-              Recarga el launcher
+              {t('loader.reload')}
             </button>
           </div>
         )}
@@ -58,7 +60,7 @@ const Loader: React.FC<LoaderProps> = ({
     );
   }
 
-  const letters = Array.from(text);
+  const letters = Array.from(text ?? t('loading'));
   return (
     <div className="loader-wrapper">
       {letters.map((ch, idx) => (

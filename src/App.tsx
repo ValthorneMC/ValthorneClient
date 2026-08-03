@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import type { Dispatch, SetStateAction } from "react";
+import { useTranslation } from "react-i18next";
+import { CircleCheck, RefreshCw, TriangleAlert } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -24,6 +26,7 @@ import { SessionService } from "@/services/sessions";
 import valthorneLogo from "@/assets/valthorne.png";
 import microsoftIcon from "@/assets/icons/microsoft.svg";
 import { logger } from "@/utils/logger";
+import { i18n, translateBackendError } from "@/i18n";
 
 // Function to update Discord presence
 const updateDiscordPresence = async (state: string, details: string) => {
@@ -36,7 +39,11 @@ const updateDiscordPresence = async (state: string, details: string) => {
     const isEnabled = await invoke<boolean>('is_discord_rpc_enabled');
     if (!isEnabled) return;
 
-    await invoke('update_discord_presence', { state, details: details || '' });
+    await invoke('update_discord_presence', {
+      state,
+      details: details || '',
+      buttonLabel: i18n.t('discordPresence.joinButton', { ns: 'common' }),
+    });
   } catch (error) {
     // Silence Discord RPC errors so as not to bother the user
     void logger.debug('Discord RPC update failed (may not be enabled)', 'updateDiscordPresence');
@@ -92,8 +99,8 @@ const ensureJavaInstalled = async (
         await hideProgressBar();
         // Show notification
         await sendNotificationSafe({
-          title: 'Java instalado',
-          body: `Java ${e.payload.version || ''} se ha instalado correctamente`,
+          title: i18n.t('javaInstalled.title', { ns: 'notifications' }),
+          body: i18n.t('javaInstalled.body', { ns: 'notifications', version: e.payload.version || '' }),
         });
       } catch {}
       unlistenProgress();
@@ -159,8 +166,8 @@ const launchInstance = async (
           } catch {}
 
           await sendNotificationSafe({
-            title: 'Instancia lista',
-            body: `La instancia "${instance.name}" se ha descargado correctamente`,
+            title: i18n.t('instanceReady.title', { ns: 'notifications' }),
+            body: i18n.t('instanceReady.body', { ns: 'notifications', name: instance.name }),
           });
 
           unlistenProgress();
@@ -179,7 +186,7 @@ const launchInstance = async (
       } catch (error) {
         void logger.error('Error downloading assets', error, 'launchInstance');
         await hideProgressBar();
-        addToast('Error descargando assets de la instancia', 'error');
+        addToast(i18n.t('assetsDownloadFailed', { ns: 'instance' }), 'error');
         throw error;
       }
     }
@@ -194,10 +201,10 @@ const launchInstance = async (
         if (sessionResponse.status === 'Ok' && sessionResponse.data?.session) {
           accessToken = sessionResponse.data.session.access_token;
           if (sessionResponse.data.refreshed) {
-            addToast('Sesión renovada automáticamente', 'info', 2000);
+            addToast(i18n.t('sessionRenewed', { ns: 'auth' }), 'info', 2000);
           }
         } else if (sessionResponse.status === 'Err') {
-          addToast('Sesión expirada. Por favor, inicia sesión nuevamente.', 'error');
+          addToast(i18n.t('sessionExpired', { ns: 'auth' }), 'error');
           if (onAuthError) {
             onAuthError();
           }
@@ -223,7 +230,7 @@ const launchInstance = async (
 
     if (setIsDownloadingAssets) setIsDownloadingAssets(false);
     if (setDownloadProgress) setDownloadProgress(null);
-    addToast(`Instancia "${instance.name}" lanzada correctamente`, 'success');
+    addToast(i18n.t('launched', { ns: 'instance', name: instance.name }), 'success');
     void logger.info(`Instance launched successfully: ${instance.name}`, 'launchInstance');
   } catch (error) {
     void logger.error('Error launching instance', error, 'launchInstance');
@@ -242,7 +249,7 @@ const launchInstance = async (
       try {
         const errorData = JSON.parse(error);
         if (errorData.status === 'Err' && ['NO_SESSION', 'NO_REFRESH', 'REFRESH_FAILED', 'PROFILE_401'].includes(errorData.code)) {
-          addToast('Sesión expirada. Por favor, inicia sesión nuevamente.', 'error');
+          addToast(i18n.t('sessionExpired', { ns: 'auth' }), 'error');
           if (onAuthError) {
             onAuthError();
           }
@@ -252,7 +259,7 @@ const launchInstance = async (
       }
     }
 
-    addToast(`Error lanzando ${instance.name}`, 'error');
+    addToast(i18n.t('launchFailed', { ns: 'instance', name: instance.name }), 'error');
     throw error;
   }
 };
@@ -340,6 +347,7 @@ interface DistributionManifest {
 
 
 function App() {
+  const { t } = useTranslation(['common', 'auth', 'instance', 'updater', 'notifications']);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const devToolsOpenRef = useRef(false);
   const [currentAccount, setCurrentAccount] = useState<Account | null>(null);
@@ -347,7 +355,7 @@ function App() {
   const [selectedInstance, setSelectedInstance] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [showLoader, setShowLoader] = useState(false);
-  const [loaderText, setLoaderText] = useState("Iniciando sesión...");
+  const [loaderText, setLoaderText] = useState(() => i18n.t('signingIn', { ns: 'auth' }));
   const [isTransitioning, setIsTransitioning] = useState(false);
   const [isLoginVisible, setIsLoginVisible] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -366,7 +374,7 @@ function App() {
   const [closeDialogOpen, setCloseDialogOpen] = useState(false);
 
   useEffect(() => {
-    void logger.info('Aplicación iniciada', 'APP');
+    void logger.info('Application started', 'APP');
     void initializeNotificationPermissions();
     (async () => {
       try {
@@ -392,7 +400,7 @@ function App() {
         const config = await invoke<{ enabled: boolean }>('load_discord_rpc_config');
         if (config.enabled) {
           await invoke('initialize_discord_rpc');
-          await updateDiscordPresence('En el cliente', '');
+          await updateDiscordPresence(t('common:discordPresence.inClient'), '');
         }
       } catch (error) {
         void logger.debug('Discord RPC initialization failed', 'App');
@@ -420,17 +428,17 @@ function App() {
         try {
           const result = await UpdaterService.installUpdate();
           if (result.success) {
-            addToast('Actualización instalada. La aplicación se reiniciará.', 'success');
+            addToast(t('updater:installedRestart'), 'success');
             return;
           } else {
-            void logger.error('Error instalando actualización automática', result.message, 'checkForUpdatesOnStartup');
+            void logger.error('Error installing automatic update', result.message, 'checkForUpdatesOnStartup');
             if (state.available_version) {
               setUpdateReadyVersion(state.available_version);
             }
             return;
           }
         } catch (error) {
-          void logger.error('Error instalando actualización automática', error, 'checkForUpdatesOnStartup');
+          void logger.error('Error installing automatic update', error, 'checkForUpdatesOnStartup');
           if (state.available_version) {
             setUpdateReadyVersion(state.available_version);
           }
@@ -450,7 +458,7 @@ function App() {
           if (!downloadResult.success) {
             setUpdateDownloadProgress(null);
             setUpdateDownloadVersion(null);
-            addToast('Error al descargar la actualización', 'error');
+            addToast(t('updater:downloadFailed'), 'error');
             const finalState = await UpdaterService.getUpdateState();
             if (finalState.available_version) {
               setUpdateDialogState({ isDownloadReady: false, hasUpdateAvailable: true, version: finalState.available_version });
@@ -485,7 +493,7 @@ function App() {
           if (!downloadResult.success) {
             setUpdateDownloadProgress(null);
             setUpdateDownloadVersion(null);
-            addToast('Error al descargar la actualización', 'error');
+            addToast(t('updater:downloadFailed'), 'error');
             const newState = await UpdaterService.getUpdateState();
             if (newState.available_version && !newState.download_ready) {
               setUpdateDialogState({ isDownloadReady: false, hasUpdateAvailable: true, version: newState.available_version });
@@ -596,10 +604,10 @@ function App() {
   useEffect(() => {
     const updatePresence = async () => {
       if (selectedInstance) {
-        const instanceName = mainInstance?.name || 'Instancia desconocida';
+        const instanceName = mainInstance?.name || t('instance:unknown');
         await updateDiscordPresence(`Jugando ${instanceName}`, '');
       } else {
-        await updateDiscordPresence('En el cliente', '');
+        await updateDiscordPresence(t('common:discordPresence.inClient'), '');
       }
     };
 
@@ -627,11 +635,11 @@ function App() {
         if (currentAccount && !validAccounts.find(acc => acc.id === currentAccount.id)) {
           if (validAccounts.length > 0) {
             setCurrentAccount(validAccounts[0]);
-            addToast(`Cuenta activa cambiada a: ${validAccounts[0].user.username}`, 'info');
+            addToast(t('auth:activeAccountChanged', { username: validAccounts[0].user.username }), 'info');
           } else {
             setCurrentAccount(null);
             setIsLoginVisible(true);
-            addToast('Todas las cuentas han expirado. Vuelve a iniciar sesión.', 'info');
+            addToast(t('auth:allAccountsExpired'), 'info');
           }
         }
       }
@@ -671,13 +679,13 @@ function App() {
     setSettingsOpen(false);
     setIsLoginVisible(true);
 
-    addToast('Logéate para añadir una nueva cuenta', 'info');
+    addToast(t('auth:loginToAddAccount'), 'info');
   };
 
   const handleSwitchAccount = (account: Account) => {
     validateAccountToken(account).then(isValid => {
       if (!isValid) {
-        addToast(`Token de ${account.user.username} ha expirado. Por favor, inicia sesión nuevamente.`, 'error');
+        addToast(t('auth:tokenExpired', { username: account.user.username }), 'error');
         handleLogoutAccount(account.id);
         return;
       }
@@ -689,10 +697,10 @@ function App() {
         isActive: acc.id === account.id
       }));
       setAccounts(updatedAccounts);
-      addToast(`Cambiado a cuenta: ${account.user.username}`, 'success');
+      addToast(t('auth:switchedAccount', { username: account.user.username }), 'success');
     }).catch(error => {
       void logger.error('Error switching account', error, 'handleSwitchAccount');
-      addToast('Error al cambiar de cuenta', 'error');
+      addToast(t('auth:switchAccountFailed'), 'error');
     });
   };
 
@@ -723,7 +731,7 @@ function App() {
       setAccounts([]);
       setCurrentAccount(null);
       setIsLoginVisible(true);
-      addToast('Todas las cuentas cerradas. Vuelve a iniciar sesión.', 'info');
+      addToast(t('auth:allAccountsLoggedOut'), 'info');
     } else {
       const newActiveAccount = updatedAccounts[0];
       setCurrentAccount(newActiveAccount);
@@ -738,7 +746,7 @@ function App() {
       }
 
       setAccounts(updatedAccounts);
-      addToast(`Sesión cerrada.`, 'info');
+      addToast(t('auth:loggedOut'), 'info');
     }
 
     setSelectedInstance(null);
@@ -780,9 +788,9 @@ function App() {
       setDistribution(manifest);
       setDistributionLoaded(true);
 
-      addToast(`¡Instancia cargada correctamente!`, 'success');
+      addToast(t('instance:distributionLoaded'), 'success');
     } catch (error) {
-      addToast('Error al cargar la distribución', 'error');
+      addToast(t('instance:distributionFailed'), 'error');
     }
   };
 
@@ -843,11 +851,13 @@ function App() {
 
   const handleMicrosoftAuth = async () => {
     setIsLoading(true);
-    setLoaderText("Iniciando sesión...");
+    setLoaderText(t('auth:signingIn'));
     setShowLoader(true);
 
     try {
-      const userSession = await invoke<AuthSession>('start_microsoft_auth');
+      const userSession = await invoke<AuthSession>('start_microsoft_auth', {
+        windowTitle: t('auth:msWindowTitle'),
+      });
 
       const newAccount: Account = {
         id: userSession.username,
@@ -868,7 +878,7 @@ function App() {
         void logger.info(`Session saved successfully for user: ${userSession.username}`, 'handleMicrosoftAuth');
       } catch (sessionError) {
         void logger.error('CRITICAL: Error saving session to database', sessionError, 'handleMicrosoftAuth');
-        addToast('Error crítico: No se pudo guardar la sesión. Contacta a soporte.', 'error', 10000);
+        addToast(t('auth:sessionSaveCritical'), 'error', 10000);
         setIsLoading(false);
         setShowLoader(false);
         throw sessionError;
@@ -878,13 +888,13 @@ function App() {
       setCurrentAccount(newAccount);
       setAccounts(updatedAccounts);
 
-      addToast('Autenticación exitosa.', 'success');
+      addToast(t('auth:success'), 'success');
       setIsTransitioning(true);
 
       setTimeout(() => {
         setIsLoading(false);
         setShowLoader(false);
-        setLoaderText("Iniciando sesión...");
+        setLoaderText(t('auth:signingIn'));
 
         setTimeout(() => {
           setIsTransitioning(false);
@@ -893,10 +903,10 @@ function App() {
 
     } catch (error) {
       void logger.error('Microsoft auth error', error, 'handleMicrosoftAuth');
-      addToast('Error en autenticación: ' + error, 'error');
+      addToast(t('auth:failed', { error: translateBackendError(error) }), 'error');
       setIsLoading(false);
       setShowLoader(false);
-      setLoaderText("Iniciando sesión...");
+      setLoaderText(t('auth:signingIn'));
       setIsTransitioning(false);
     }
   };
@@ -955,7 +965,7 @@ function App() {
                       >
                         <div className="absolute inset-0 bg-gradient-to-r from-transparent via-[#d4af37]/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
                         <img src={microsoftIcon} alt="Microsoft" className="w-8 h-8 mr-3 relative z-10" />
-                        <span className="relative z-10 font-heading tracking-wide">Iniciar Sesión</span>
+                        <span className="relative z-10 font-heading tracking-wide">{t('auth:signIn')}</span>
                   </Button>
                 </BorderBeam>
               </div>
@@ -973,7 +983,7 @@ function App() {
                  />
                ) : !distribution ? (
                 <div className="flex items-center justify-center h-full">
-                  <Loader text="Cargando distribución..." variant="orbital" showReloadAfter={30} />
+                  <Loader text={t('instance:loadingDistribution')} variant="orbital" showReloadAfter={30} />
             </div>
                ) : !selectedInstance ? (
                  <HomeScreen
@@ -990,9 +1000,9 @@ function App() {
                      isJavaInstalling={showLoader || isDownloadingAssets}
                      onLaunch={async (instance) => {
                        if (isDownloadingAssets) {
-                         setLoaderText("Descargando assets de instancia...");
+                         setLoaderText(t('instance:downloadingAssets'));
                        } else {
-                         setLoaderText("Iniciando instancia...");
+                         setLoaderText(t('instance:starting'));
                        }
                        setShowLoader(true);
 
@@ -1002,7 +1012,7 @@ function App() {
                          addToast,
                          () => {
                            setShowLoader(false);
-                           setLoaderText("Iniciando sesión...");
+                           setLoaderText(t('auth:signingIn'));
                          },
                          setIsDownloadingAssets,
                          setDownloadProgress,
@@ -1031,14 +1041,14 @@ function App() {
         <div className="pointer-events-auto flex flex-col gap-2">
           {downloadProgress && (
             <DownloadProgressToast
-              message={downloadProgress.status === 'Completed' ? 'Assets descargados' : 'Descargando assets de instancia'}
+              message={downloadProgress.status === 'Completed' ? t('instance:assetsDownloaded') : t('instance:downloadingAssetsShort')}
               percentage={downloadProgress.percentage}
               onClose={() => setDownloadProgress(null)}
             />
           )}
           {updateDownloadProgress !== null && updateDownloadVersion && (
             <DownloadProgressToast
-              message="Descargando nueva actualización"
+              message={t('updater:newUpdateDownloading')}
               percentage={updateDownloadProgress}
               onClose={() => {
                 setUpdateDownloadProgress(null);
@@ -1048,7 +1058,7 @@ function App() {
           )}
           {updateReadyVersion && (
             <UpdateReadyToast
-              message="Nueva actualización lista para instalar"
+              message={t('updater:newUpdateReady')}
               version={updateReadyVersion}
               onClose={() => setUpdateReadyVersion(null)}
               onClick={() => {
@@ -1113,32 +1123,26 @@ function App() {
                     : '0 0 30px rgba(59, 130, 246, 0.3), inset 0 0 20px rgba(59, 130, 246, 0.1)'
                 }}
               >
-                <svg 
-                  className={`w-10 h-10 ${updateDialogState.isDownloadReady ? 'text-green-400' : 'text-blue-400'}`} 
-                  fill="none" 
-                  stroke="currentColor" 
-                  viewBox="0 0 24 24"
-                  style={{
-                    filter: updateDialogState.isDownloadReady
-                      ? 'drop-shadow(0 0 8px rgba(34, 197, 94, 0.6))'
-                      : 'drop-shadow(0 0 8px rgba(59, 130, 246, 0.6))'
-                  }}
-                >
-                  {updateDialogState.isDownloadReady ? (
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  ) : (
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                  )}
-                </svg>
+                {updateDialogState.isDownloadReady ? (
+                  <CircleCheck
+                    className="w-10 h-10 text-green-400"
+                    style={{ filter: 'drop-shadow(0 0 8px rgba(34, 197, 94, 0.6))' }}
+                  />
+                ) : (
+                  <RefreshCw
+                    className="w-10 h-10 text-blue-400"
+                    style={{ filter: 'drop-shadow(0 0 8px rgba(59, 130, 246, 0.6))' }}
+                  />
+                )}
               </div>
-              
+
               {updateDialogState.isDownloadReady ? (
                 <>
                   <h3 className="text-3xl font-bold text-white mb-3 animate-fade-in-up" style={{ animationDelay: '0.2s', animationFillMode: 'both' }}>
-                    Actualización Lista
+                    {t('updater:dialog.readyTitle')}
                   </h3>
                   <p className="text-white/70 mb-8 leading-relaxed animate-fade-in-up" style={{ animationDelay: '0.3s', animationFillMode: 'both' }}>
-                    Hay una actualización descargada y lista para instalar. La aplicación se reiniciará después de la instalación.
+                    {t('updater:dialog.readyBody')}
                   </p>
                   
                   <div className="flex gap-4 justify-center animate-fade-in-up" style={{ animationDelay: '0.4s', animationFillMode: 'both' }}>
@@ -1149,12 +1153,12 @@ function App() {
                         try {
                           const result = await UpdaterService.installUpdate();
                           if (result.success) {
-                            addToast('Actualización instalada. La aplicación se reiniciará.', 'success');
+                            addToast(t('updater:installedRestart'), 'success');
                           } else {
-                            addToast('Error al instalar la actualización', 'error');
+                            addToast(t('updater:installFailed'), 'error');
                           }
                         } catch (error) {
-                          addToast('Error al instalar la actualización', 'error');
+                          addToast(t('updater:installFailed'), 'error');
                         }
                       }}
                       className="px-8 py-3.5 rounded-xl font-semibold text-green-100 transition-all duration-300 hover:scale-105 active:scale-95"
@@ -1176,17 +1180,17 @@ function App() {
                         e.currentTarget.style.borderColor = 'rgba(34, 197, 94, 0.4)';
                       }}
                     >
-                      Instalar Ahora
+                      {t('updater:dialog.installNow')}
                     </button>
                   </div>
                 </>
               ) : updateDialogState.hasUpdateAvailable ? (
                 <>
                   <h3 className="text-3xl font-bold text-white mb-3 animate-fade-in-up" style={{ animationDelay: '0.2s', animationFillMode: 'both' }}>
-                    Actualización Disponible
+                    {t('updater:dialog.availableTitle')}
                   </h3>
                   <p className="text-white/70 mb-8 leading-relaxed animate-fade-in-up" style={{ animationDelay: '0.3s', animationFillMode: 'both' }}>
-                    Hay una nueva versión disponible ({updateDialogState.version}). ¿Quieres descargarla ahora?
+                    {t('updater:dialog.availableBody', { version: updateDialogState.version })}
                   </p>
                   
                   <div className="flex gap-4 justify-center animate-fade-in-up" style={{ animationDelay: '0.4s', animationFillMode: 'both' }}>
@@ -1197,17 +1201,17 @@ function App() {
                         try {
                           const result = await UpdaterService.downloadUpdateSilent(false);
                           if (result.success) {
-                            addToast('Actualización descargada correctamente', 'success');
+                            addToast(t('updater:downloadedShort'), 'success');
                             const newState = await UpdaterService.getUpdateState();
                             if (newState.download_ready) {
                               setUpdateDialogState({ isDownloadReady: true, hasUpdateAvailable: false, version: newState.available_version });
                               setTimeout(() => setUpdateDialogOpen(true), 500);
                             }
                           } else {
-                            addToast('Error al descargar la actualización', 'error');
+                            addToast(t('updater:downloadFailed'), 'error');
                           }
                         } catch (error) {
-                          addToast('Error al descargar la actualización', 'error');
+                          addToast(t('updater:downloadFailed'), 'error');
                         }
                       }}
                       className="px-8 py-3.5 rounded-xl font-semibold text-blue-100 transition-all duration-300 hover:scale-105 active:scale-95"
@@ -1229,7 +1233,7 @@ function App() {
                         e.currentTarget.style.borderColor = 'rgba(59, 130, 246, 0.4)';
                       }}
                     >
-                      Descargar
+                      {t('updater:dialog.download')}
                     </button>
                     
                     <button
@@ -1253,7 +1257,7 @@ function App() {
                         e.currentTarget.style.borderColor = 'rgba(107, 114, 128, 0.3)';
                       }}
                     >
-                      Más Tarde
+                      {t('updater:dialog.later')}
                     </button>
                   </div>
                 </>
@@ -1263,7 +1267,7 @@ function App() {
         </div>
       )}
 
-      {/* Diálogo de confirmación de cierre durante descarga */}
+      {/* Close confirmation dialog shown during a download */}
       {closeDialogOpen && (
           <div 
           className="fixed inset-0 z-50 flex items-center justify-center animate-fade-in"
@@ -1301,24 +1305,17 @@ function App() {
                   boxShadow: '0 0 30px rgba(234, 88, 12, 0.3), inset 0 0 20px rgba(234, 88, 12, 0.1)'
                 }}
               >
-                <svg 
-                  className="w-10 h-10 text-orange-400" 
-                  fill="none" 
-                  stroke="currentColor" 
-                  viewBox="0 0 24 24"
-                  style={{
-                    filter: 'drop-shadow(0 0 8px rgba(234, 88, 12, 0.6))'
-                  }}
-                >
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                </svg>
+                <TriangleAlert
+                  className="w-10 h-10 text-orange-400"
+                  style={{ filter: 'drop-shadow(0 0 8px rgba(234, 88, 12, 0.6))' }}
+                />
               </div>
               
               <h3 className="text-3xl font-bold text-white mb-3 animate-fade-in-up" style={{ animationDelay: '0.2s', animationFillMode: 'both' }}>
-                Descarga en progreso
+                {t('common:closeDialog.title')}
               </h3>
               <p className="text-white/70 mb-8 leading-relaxed animate-fade-in-up" style={{ animationDelay: '0.3s', animationFillMode: 'both' }}>
-                Hay una descarga en progreso. Si cierras la aplicación ahora, la descarga se cancelará. ¿Estás seguro de que quieres cerrar?
+                {t('common:closeDialog.body')}
               </p>
               
               <div className="flex gap-4 justify-center animate-fade-in-up" style={{ animationDelay: '0.4s', animationFillMode: 'both' }}>
@@ -1349,7 +1346,7 @@ function App() {
                     e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.4)';
                   }}
                 >
-                  Cerrar
+                  {t('common:close')}
                 </button>
                 
                 <button
@@ -1373,7 +1370,7 @@ function App() {
                     e.currentTarget.style.borderColor = 'rgba(107, 114, 128, 0.3)';
                   }}
                 >
-                  Cancelar
+                  {t('common:cancel')}
                 </button>
               </div>
             </div>

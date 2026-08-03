@@ -7,6 +7,8 @@
 // is unchanged, only the "glue" that wires it to the DOM/render loop differs.
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { Rotate3d } from 'lucide-react';
 import * as THREE from 'three';
 
 import {
@@ -69,6 +71,7 @@ export const SkinPreviewRenderer: React.FC<SkinPreviewRendererProps> = ({
   subtitle,
   showDragHint = false,
 }) => {
+  const { t } = useTranslation('skins');
   const containerRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [containerElement, setContainerElement] = useState<HTMLElement | null>(null);
@@ -333,10 +336,8 @@ export const SkinPreviewRenderer: React.FC<SkinPreviewRendererProps> = ({
       {showDragHint && (
         <div className="absolute inset-x-0 bottom-[14%] flex items-center justify-center pointer-events-none z-10">
           <span className="flex items-center gap-1.5 text-sm font-medium text-white/70">
-            <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16V4m0 0L3 8m4-4l4 4m10 4v12m0 0l4-4m-4 4l-4-4" />
-            </svg>
-            Arrastra para rotar
+            <Rotate3d className="w-4 h-4 shrink-0" />
+            {t('dragToRotate')}
           </span>
         </div>
       )}

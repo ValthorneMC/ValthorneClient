@@ -1,10 +1,13 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
+import { ImageUp, Info, Pencil, Plus, Save, UploadCloud, X } from 'lucide-react';
 import { SkinPreviewRenderer } from './SkinPreviewRenderer';
 import { SkinData, SkinModel, CapeData } from '@/types/skin';
 import { SkinStorageService } from '@/services/skin/skinStorage';
 import { invoke } from '@tauri-apps/api/core';
 import { useDropzone } from 'react-dropzone';
 import { logger } from '@/utils/logger';
+import { translateBackendError } from '@/i18n';
 
 interface SkinManagerProps {
   currentUser: any;
@@ -83,6 +86,8 @@ const refreshAvatars = () => {
 };
 
 export const SkinManager: React.FC<SkinManagerProps> = ({ currentUser, addToast }) => {
+  const { t } = useTranslation('skins');
+  const { t: tCommon } = useTranslation('common');
   const [skins, setSkins] = useState<SkinData[]>([]);
   const [selectedSkinId, setSelectedSkinId] = useState<string | null>(null);
   // The skin Mojang currently reports as active when it doesn't match anything in the
@@ -120,7 +125,7 @@ export const SkinManager: React.FC<SkinManagerProps> = ({ currentUser, addToast 
 
   const buildExternalSkinFromMojang = useCallback((mojangSkin: MojangSkin): SkinData => ({
     id: `external_${mojangSkin.id || mojangSkin.url}`,
-    name: 'Skin actual',
+    name: t('currentSkinName'),
     url: mojangSkin.url,
     textureId: mojangSkin.id,
     variant: mojangSkin.variant === 'SLIM' ? 'slim' : 'classic',
@@ -343,7 +348,7 @@ export const SkinManager: React.FC<SkinManagerProps> = ({ currentUser, addToast 
         }, 30000);
       } catch (error) {
         console.error('❌ Error loading skins from localStorage:', error);
-        addToast?.('Error al cargar skins guardadas', 'error');
+        addToast?.(t('toast.loadFailed'), 'error');
         setIsLoadingInitial(false);
       }
     };
@@ -361,12 +366,12 @@ export const SkinManager: React.FC<SkinManagerProps> = ({ currentUser, addToast 
     if (!file) return;
 
     if (file.type !== 'image/png') {
-      addToast?.('Solo se permiten archivos PNG', 'error');
+      addToast?.(t('toast.onlyPng'), 'error');
       return;
     }
 
     if (file.size > 24 * 1024) {
-      addToast?.('El archivo debe ser menor a 24KB', 'error');
+      addToast?.(t('toast.tooLarge'), 'error');
       return;
     }
 
@@ -399,10 +404,10 @@ export const SkinManager: React.FC<SkinManagerProps> = ({ currentUser, addToast 
       const updatedSkins = await SkinStorageService.getStoredSkins();
       setSkins([...updatedSkins]);
 
-      addToast?.('Skin guardada', 'success');
+      addToast?.(t('toast.saved'), 'success');
     } catch (error) {
       void logger.error('Error saving skin', error, 'SkinManager');
-      addToast?.(`Error: ${error instanceof Error ? error.message : 'Error desconocido'}`, 'error');
+      addToast?.(t('toast.uploadFailed', { message: translateBackendError(error) || tCommon('unknownError') }), 'error');
     } finally {
       setIsUploading(false);
     }
@@ -460,7 +465,7 @@ export const SkinManager: React.FC<SkinManagerProps> = ({ currentUser, addToast 
     setSkins([...allSkins]);
 
     refreshAvatars();
-    addToast?.('Skin aplicada', 'success');
+    addToast?.(t('toast.applied'), 'success');
     setIsUploading(true);
 
     const timeSinceLastUpload = Date.now() - lastUploadTimeRef.current;
@@ -520,9 +525,9 @@ export const SkinManager: React.FC<SkinManagerProps> = ({ currentUser, addToast 
         }
       } catch (uploadError: any) {
         if (uploadError?.message?.includes('429') || uploadError?.message?.includes('rate limit')) {
-          addToast?.('Rate limit. Skin activa localmente', 'info');
+          addToast?.(t('toast.rateLimited'), 'info');
         } else if (uploadError?.message?.includes('401') || uploadError?.message?.includes('Unauthorized')) {
-          addToast?.('Sesión expirada. Skin activa localmente', 'info');
+          addToast?.(t('toast.sessionExpiredLocal'), 'info');
         } else {
           void logger.warn('Error uploading to Mojang (skin active locally)', uploadError, 'SkinManager');
         }
@@ -566,10 +571,10 @@ export const SkinManager: React.FC<SkinManagerProps> = ({ currentUser, addToast 
       setSelectedSkinId(importedSkin.id);
       const updatedSkins = await SkinStorageService.getStoredSkins();
       setSkins([...updatedSkins]);
-      addToast?.('Skin importada a tu librería', 'success');
+      addToast?.(t('toast.imported'), 'success');
     } catch (error) {
       void logger.error('Error importing external skin', error, 'SkinManager');
-      addToast?.('No se pudo importar la skin', 'error');
+      addToast?.(t('toast.importFailed'), 'error');
     } finally {
       setIsImportingExternal(false);
     }
@@ -579,7 +584,7 @@ export const SkinManager: React.FC<SkinManagerProps> = ({ currentUser, addToast 
     event.stopPropagation();
 
     if (selectedSkinId === skinId) {
-      addToast?.('No puedes eliminar la skin seleccionada', 'error');
+      addToast?.(t('toast.cannotDeleteSelected'), 'error');
       return;
     }
 
@@ -592,11 +597,11 @@ export const SkinManager: React.FC<SkinManagerProps> = ({ currentUser, addToast 
       await SkinStorageService.deleteSkin(skinId);
       const updatedSkins = await SkinStorageService.getStoredSkins();
       setSkins([...updatedSkins]);
-      addToast?.('Skin eliminada', 'success');
+      addToast?.(t('toast.deleted'), 'success');
       refreshAvatars();
     } catch (error) {
       void logger.error('Error deleting skin', error, 'SkinManager');
-      addToast?.('Error al eliminar skin', 'error');
+      addToast?.(t('toast.deleteFailed'), 'error');
     }
   }, [selectedSkinId, addToast]);
 
@@ -612,7 +617,7 @@ export const SkinManager: React.FC<SkinManagerProps> = ({ currentUser, addToast 
     try {
       const accessToken = await getValidMinecraftToken();
       if (!accessToken) {
-        addToast?.('No hay sesión válida para activar la capa', 'error');
+        addToast?.(t('toast.noSessionForCape'), 'error');
         setCapes(previousCapes);
         return;
       }
@@ -620,11 +625,11 @@ export const SkinManager: React.FC<SkinManagerProps> = ({ currentUser, addToast 
       await invoke('set_active_cape', { capeId: cape.id, accessToken });
       const cacheKey = currentUser?.uuid || currentUser?.username;
       if (cacheKey) capesSessionCache[cacheKey] = nextCapes;
-      addToast?.('Capa activada', 'success');
+      addToast?.(t('toast.capeApplied'), 'success');
       refreshAvatars();
     } catch (error) {
       void logger.error('Error activating cape', error, 'SkinManager');
-      addToast?.('Error al activar la capa', 'error');
+      addToast?.(t('toast.capeApplyFailed'), 'error');
       setCapes(previousCapes);
       SkinStorageService.setLocalActiveCapeId(previousCapes.find((c) => c.state === 'ACTIVE')?.id ?? null);
     } finally {
@@ -644,7 +649,7 @@ export const SkinManager: React.FC<SkinManagerProps> = ({ currentUser, addToast 
     try {
       const accessToken = await getValidMinecraftToken();
       if (!accessToken) {
-        addToast?.('No hay sesión válida para quitar la capa', 'error');
+        addToast?.(t('toast.noSessionForCapeRemoval'), 'error');
         setCapes(previousCapes);
         return;
       }
@@ -652,11 +657,11 @@ export const SkinManager: React.FC<SkinManagerProps> = ({ currentUser, addToast 
       await invoke('remove_active_cape', { accessToken });
       const cacheKey = currentUser?.uuid || currentUser?.username;
       if (cacheKey) capesSessionCache[cacheKey] = nextCapes;
-      addToast?.('Capa quitada', 'success');
+      addToast?.(t('toast.capeRemoved'), 'success');
       refreshAvatars();
     } catch (error) {
       void logger.error('Error removing cape', error, 'SkinManager');
-      addToast?.('Error al quitar la capa', 'error');
+      addToast?.(t('toast.capeRemoveFailed'), 'error');
       setCapes(previousCapes);
     } finally {
       setIsUpdatingCape(false);
@@ -686,12 +691,12 @@ export const SkinManager: React.FC<SkinManagerProps> = ({ currentUser, addToast 
     if (!file) return;
 
     if (file.type !== 'image/png') {
-      addToast?.('Solo se permiten archivos PNG', 'error');
+      addToast?.(t('toast.onlyPng'), 'error');
       return;
     }
 
     if (file.size > 24 * 1024) {
-      addToast?.('El archivo debe ser menor a 24KB', 'error');
+      addToast?.(t('toast.tooLarge'), 'error');
       return;
     }
 
@@ -796,11 +801,11 @@ export const SkinManager: React.FC<SkinManagerProps> = ({ currentUser, addToast 
       }
 
       refreshAvatars();
-      addToast?.('Skin actualizada', 'success');
+      addToast?.(t('toast.updated'), 'success');
       handleCloseEditModal();
     } catch (error) {
       void logger.error('Error guardando cambios de skin', error, 'SkinManager');
-      addToast?.('Error al guardar los cambios', 'error');
+      addToast?.(t('toast.saveChangesFailed'), 'error');
     } finally {
       setIsSavingEdits(false);
     }
@@ -845,9 +850,11 @@ export const SkinManager: React.FC<SkinManagerProps> = ({ currentUser, addToast 
       </div>
 
       <div className="relative z-10 h-full min-h-0 grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,2.5fr)] gap-8 p-6 overflow-hidden">
-        {/* Panel de previsualización (estilo Modrinth: título + modelo grande, sticky) */}
+        {/* Preview panel (Modrinth style: title + large sticky model) */}
         <div className="flex flex-col min-h-0 overflow-hidden">
-          <h1 className="text-2xl font-bold text-white mb-2">Selector de skin</h1>
+          <h1 className="font-heading text-4xl font-black tracking-wide text-white drop-shadow-lg mb-4">
+            {t('title')}
+          </h1>
 
           <div className="relative w-full h-[calc(80vh-1rem)] min-h-[280px] flex items-center justify-center">
             <SkinPreviewRenderer
@@ -870,21 +877,17 @@ export const SkinManager: React.FC<SkinManagerProps> = ({ currentUser, addToast 
                       {isImportingExternal ? (
                         <div className="w-4 h-4 animate-spin rounded-full border-t-2 border-b-2 border-[#d4af37]" />
                       ) : (
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3" />
-                        </svg>
+                        <Save className="w-4 h-4" />
                       )}
-                      Guardar en tus skins
+                      {t('saveToYourSkins')}
                     </button>
                   ) : (
                     <button
                       onClick={() => handleOpenEditModal(activeSkin, hasActiveCape ? activeCape?.id ?? null : null)}
                       className="pointer-events-auto flex items-center gap-2 rounded-lg border border-white/15 bg-black/50 hover:bg-black/70 px-4 py-2 text-sm font-semibold text-white backdrop-blur-sm transition-colors"
                     >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                      </svg>
-                      Editar skin
+                      <Pencil className="w-4 h-4" />
+                      {t('editSkin')}
                     </button>
                   )
                 ) : undefined
@@ -909,17 +912,15 @@ export const SkinManager: React.FC<SkinManagerProps> = ({ currentUser, addToast 
           {isDragActive && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
               <div className="glass-card px-12 py-8 rounded-2xl border-2 border-dashed border-[#d4af37] bg-gradient-to-br from-[#d4af37]/10 to-[#7c4dbd]/10">
-                <svg className="mx-auto h-16 w-16 text-[#d4af37] mb-4" stroke="currentColor" fill="none" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-                </svg>
-                <p className="text-2xl font-bold text-white">Suelta el archivo aquí</p>
+                <UploadCloud className="mx-auto h-16 w-16 text-[#d4af37] mb-4" strokeWidth={1.5} />
+                <p className="text-2xl font-bold text-white">{t('dropHere')}</p>
               </div>
             </div>
           )}
 
-          {/* Sección de skins */}
+          {/* Skins section */}
           <section>
-            <h2 className="text-xl font-semibold text-white mb-3">Tus skins</h2>
+            <h2 className="text-xl font-semibold text-white mb-3">{t('yourSkins')}</h2>
 
             {isLoadingInitial ? (
               <div className="h-40 flex items-center justify-center">
@@ -946,13 +947,11 @@ export const SkinManager: React.FC<SkinManagerProps> = ({ currentUser, addToast 
                 >
                   <div className="w-full h-full rounded-[20px] overflow-hidden bg-black/40 backdrop-blur-sm flex flex-col items-center justify-center gap-2 border-2 border-dashed border-white/15 group-hover:border-[#d4af37]/60 transition-colors duration-300">
                     <div className="w-12 h-12 rounded-full bg-gradient-to-br from-[#d4af37]/15 to-[#7c4dbd]/15 flex items-center justify-center group-hover:from-[#d4af37]/25 group-hover:to-[#7c4dbd]/25 transition-colors">
-                      <svg className="w-6 h-6 text-[#d4af37]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                      </svg>
+                      <Plus className="w-6 h-6 text-[#d4af37]" />
                     </div>
                     <div className="text-center px-3">
-                      <p className="text-white text-xs font-semibold">Añadir Skin</p>
-                      <p className="text-white/40 text-[10px] mt-0.5">PNG · 64x64 · &lt;24KB</p>
+                      <p className="text-white text-xs font-semibold">{t('addSkin')}</p>
+                      <p className="text-white/40 text-[10px] mt-0.5">{t('addSkinHint')}</p>
                     </div>
                   </div>
                 </div>
@@ -973,12 +972,12 @@ export const SkinManager: React.FC<SkinManagerProps> = ({ currentUser, addToast 
                     />
 
                     <div className="absolute top-2 left-2 z-20 rounded-full bg-[#d4af37] px-2 py-0.5 text-[10px] font-bold text-black shadow-lg">
-                      Actual
+                      {t('current')}
                     </div>
 
                     <div className="absolute inset-x-0 bottom-0 flex flex-col items-center gap-1 bg-gradient-to-t from-black/90 to-transparent px-2 pb-2 pt-6 opacity-0 group-hover:opacity-100 transition-opacity">
                       <p className="text-white text-[11px] font-medium text-center leading-tight">
-                        {isImportingExternal ? 'Importando…' : 'No está en tu librería. Clic para guardarla.'}
+                        {isImportingExternal ? t('importing') : t('notInLibrary')}
                       </p>
                     </div>
                   </div>
@@ -1011,9 +1010,7 @@ export const SkinManager: React.FC<SkinManagerProps> = ({ currentUser, addToast 
                           onClick={(e) => handleDeleteSkin(skin.id, e)}
                           className="absolute top-2 right-2 z-20 w-7 h-7 rounded-full bg-red-500/90 hover:bg-red-600 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow-lg"
                         >
-                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                          </svg>
+                          <X className="w-3.5 h-3.5" />
                         </button>
                       )}
 
@@ -1033,15 +1030,13 @@ export const SkinManager: React.FC<SkinManagerProps> = ({ currentUser, addToast 
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
           <div className="w-full max-w-[38rem] max-h-[calc(100%-3rem)] flex flex-col rounded-2xl bg-[#161019] border border-white/10 shadow-2xl">
             <div className="flex items-center justify-between gap-4 p-6 border-b border-white/10">
-              <h2 className="text-lg font-extrabold text-white">Editando skin</h2>
+              <h2 className="text-lg font-extrabold text-white">{t('editingSkin')}</h2>
               <button
                 onClick={handleCloseEditModal}
-                title="Cerrar"
+                title={tCommon('close')}
                 className="w-9 h-9 shrink-0 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-colors"
               >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
+                <X className="w-4 h-4" />
               </button>
             </div>
 
@@ -1063,18 +1058,16 @@ export const SkinManager: React.FC<SkinManagerProps> = ({ currentUser, addToast 
                 {/* Controles */}
                 <div className="flex min-w-0 flex-1 flex-col gap-4">
                   <div>
-                    <h3 className="text-base font-semibold text-white mb-2">Textura</h3>
+                    <h3 className="text-base font-semibold text-white mb-2">{t('texture')}</h3>
                     <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg bg-white/10 hover:bg-white/15 px-3 py-1.5 text-sm font-medium text-white transition-colors">
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5-5m0 0l5 5m-5-5v12" />
-                      </svg>
-                      Reemplazar textura
+                      <ImageUp className="w-4 h-4" />
+                      {t('replaceTexture')}
                       <input type="file" accept="image/png" className="hidden" onChange={handleEditFileChange} />
                     </label>
                   </div>
 
                   <div>
-                    <h3 className="text-base font-semibold text-white mb-2">Tipo de brazo</h3>
+                    <h3 className="text-base font-semibold text-white mb-2">{t('armType')}</h3>
                     <div className="flex flex-col gap-1">
                       {(['classic', 'slim'] as SkinModel[]).map((variant) => (
                         <button
@@ -1099,35 +1092,31 @@ export const SkinManager: React.FC<SkinManagerProps> = ({ currentUser, addToast 
                   </div>
 
                   <div>
-                    <h3 className="text-base font-semibold text-white mb-2">Capa</h3>
+                    <h3 className="text-base font-semibold text-white mb-2">{t('cape')}</h3>
 
                     {isLoadingCapes ? (
                       <div className="flex items-center gap-2 text-xs text-white/40 py-2">
                         <div className="animate-spin rounded-full h-3.5 w-3.5 border-t-2 border-b-2 border-[#d4af37]" />
-                        Cargando capas...
+                        {t('loadingCapes')}
                       </div>
                     ) : capes.length === 0 ? (
                       <div className="flex items-start gap-2 rounded-lg bg-white/5 px-3 py-2.5">
-                        <svg className="w-4 h-4 shrink-0 text-white/40 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
+                        <Info className="w-4 h-4 shrink-0 text-white/40 mt-0.5" />
                         <p className="text-xs leading-snug text-white/50">
-                          No tienes ninguna capa. Se consiguen mediante eventos o promociones oficiales de Mojang y aparecerán aquí automáticamente si tu cuenta tiene alguna.
+                          {t('noCapesHint')}
                         </p>
                       </div>
                     ) : (
                       <div className="grid grid-cols-[repeat(4,max-content)] gap-2">
                         <button
                           onClick={() => setPendingCapeId('none')}
-                          title="Sin capa"
+                          title={t('noCape')}
                           style={{ width: CAPE_SPRITE_WIDTH, height: CAPE_SPRITE_HEIGHT }}
                           className={`shrink-0 rounded-md flex items-center justify-center bg-black/50 transition-all ${
                             pendingCapeId === 'none' ? 'valthorne-selected-ring' : 'ring-1 ring-white/10 hover:ring-white/25'
                           }`}
                         >
-                          <svg className="w-4 h-4 text-white/50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                          </svg>
+                          <X className="w-4 h-4 text-white/50" />
                         </button>
                         {capes.map((cape) => (
                           <button
@@ -1155,7 +1144,7 @@ export const SkinManager: React.FC<SkinManagerProps> = ({ currentUser, addToast 
                 disabled={isSavingEdits}
                 className="rounded-lg border border-white/15 px-4 py-2 text-sm font-medium text-white/80 hover:bg-white/5 transition-colors disabled:opacity-50"
               >
-                Cancelar
+                {tCommon('cancel')}
               </button>
               <button
                 onClick={handleSaveSkinEdits}
@@ -1163,7 +1152,7 @@ export const SkinManager: React.FC<SkinManagerProps> = ({ currentUser, addToast 
                 className="flex items-center gap-2 rounded-lg bg-[#d4af37] hover:bg-[#c19f2e] px-4 py-2 text-sm font-semibold text-black transition-colors disabled:opacity-50 disabled:pointer-events-none"
               >
                 {isSavingEdits && <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-black" />}
-                Guardar skin
+                {t('saveSkin')}
               </button>
             </div>
           </div>
