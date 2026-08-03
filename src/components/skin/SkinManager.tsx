@@ -4,6 +4,7 @@ import { ImageUp, Info, Pencil, Plus, Save, UploadCloud, X } from 'lucide-react'
 import { SkinPreviewRenderer } from './SkinPreviewRenderer';
 import { SkinData, SkinModel, CapeData } from '@/types/skin';
 import { SkinStorageService } from '@/services/skin/skinStorage';
+import { getBestSkinTextureUrl } from '@/services/avatarService';
 import { invoke } from '@tauri-apps/api/core';
 import { useDropzone } from 'react-dropzone';
 import { logger } from '@/utils/logger';
@@ -68,12 +69,14 @@ const CapeSprite: React.FC<{ url: string; alt: string }> = ({ url, alt }) => (
   />
 );
 
-// Function to refresh avatars by adding a timestamp (Crafatar ONLY, not all images)
-// This function syncs the skin between the sidebar and the dynamic island
+// Function to refresh avatars by adding a timestamp (avatar-provider images only,
+// not all images). Syncs the skin between the sidebar and the dynamic island.
 const refreshAvatars = () => {
   const timestamp = Date.now();
 
-  document.querySelectorAll('img[src*="crafatar.com"]').forEach((img: any) => {
+  document
+    .querySelectorAll('img[src*="minotar.net"], img[src*="mc-heads.net"]')
+    .forEach((img: any) => {
     try {
       const url = new URL(img.src);
       url.searchParams.set('t', timestamp.toString());
@@ -159,7 +162,7 @@ export const SkinManager: React.FC<SkinManagerProps> = ({ currentUser, addToast 
       return skin.url;
     }
 
-    return `https://crafatar.com/skins/${currentUser?.uuid || 'default'}`;
+    return currentUser?.uuid ? getBestSkinTextureUrl(currentUser.uuid) : '';
   }, [currentUser?.uuid]);
 
   const lastUploadTimeRef = useRef<number>(0);
@@ -839,7 +842,11 @@ export const SkinManager: React.FC<SkinManagerProps> = ({ currentUser, addToast 
     noKeyboard: false
   });
 
-  const activeSkinTextureForCapes = activeSkin ? getSkinUrl(activeSkin) : `https://crafatar.com/skins/${currentUser?.uuid || 'default'}`;
+  const activeSkinTextureForCapes = activeSkin
+    ? getSkinUrl(activeSkin)
+    : currentUser?.uuid
+      ? getBestSkinTextureUrl(currentUser.uuid)
+      : '';
 
   return (
     <div className="h-full w-full relative overflow-hidden bg-gradient-to-br from-black via-[#0a0512] to-black">

@@ -29,7 +29,6 @@
       "assetProtocol": {
         "enable": true,
         "scope": [
-          "https://crafatar.com", 
           "https://minotar.net",
           "https://mc-heads.net",
           "https://*.minecraft.net", 

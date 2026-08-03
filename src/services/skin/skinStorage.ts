@@ -150,18 +150,6 @@ export class SkinStorageService {
     }
   }
 
-  static getCrafatarPreviewUrl(uuid: string): string {
-    return `https://crafatar.com/renders/body/${uuid}?overlay=true`;
-  }
-
-  static getCrafatarHeadUrl(uuid: string, size: number = 40): string {
-    return `https://crafatar.com/avatars/${uuid}?size=${size}&overlay=true`;
-  }
-
-  static getAvatarUrl(uuid: string, size: number = 40, overlay: boolean = true): string {
-    return `https://crafatar.com/avatars/${uuid}?size=${size}${overlay ? '&overlay=true' : ''}`;
-  }
-
   // --- Cape metadata (capes themselves live server-side on Mojang; we only cache the
   // locally-known active cape id for optimistic UI while a set/remove request is in flight) ---
 

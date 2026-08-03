@@ -1,4 +1,4 @@
-export type AvatarProvider = 'crafatar' | 'minotar' | 'mcheads';
+export type AvatarProvider = 'minotar' | 'mcheads';
 
 const PROVIDER_CACHE_KEY = 'avatar_provider_cache';
 const CACHE_DURATION = 24 * 60 * 60 * 1000;
@@ -46,8 +46,6 @@ function getAvatarUrl(provider: AvatarProvider, uuid: string, size: number, over
   const uuidClean = uuid.replace(/-/g, '');
   
   switch (provider) {
-    case 'crafatar':
-      return `https://crafatar.com/avatars/${uuid}?size=${size}${overlay ? '&overlay=true' : ''}`;
     case 'minotar':
       const endpoint = overlay ? 'helm' : 'avatar';
       return `https://minotar.net/${endpoint}/${uuidClean}/${size}`;
@@ -117,7 +115,7 @@ export async function loadAvatarWithFallback(
   overlay: boolean = true
 ): Promise<string> {
   const cachedProvider = getCachedProvider(uuid);
-  const allProviders: AvatarProvider[] = ['crafatar', 'minotar', 'mcheads'];
+  const allProviders: AvatarProvider[] = ['minotar', 'mcheads'];
   const providers: AvatarProvider[] = cachedProvider 
     ? [cachedProvider, ...allProviders].filter((p, i, arr) => arr.indexOf(p) === i) as AvatarProvider[]
     : allProviders;
@@ -147,6 +145,27 @@ export function getAvatarUrlFromProvider(
   overlay: boolean = true
 ): string {
   return getAvatarUrl(provider, uuid, size, overlay);
+}
+
+function getSkinTextureUrl(provider: AvatarProvider, uuid: string): string {
+  const uuidClean = uuid.replace(/-/g, '');
+
+  switch (provider) {
+    case 'minotar':
+      return `https://minotar.net/skin/${uuidClean}`;
+    case 'mcheads':
+      return `https://mc-heads.net/skin/${uuidClean}`;
+    default:
+      return '';
+  }
+}
+
+// Synchronous best-effort skin texture URL: reuses whichever provider last
+// worked for this UUID's avatar (cached by loadAvatarWithFallback), or falls
+// back to minotar if nothing is cached yet.
+export function getBestSkinTextureUrl(uuid: string): string {
+  const provider = getCachedProvider(uuid) ?? 'minotar';
+  return getSkinTextureUrl(provider, uuid);
 }
 
 export function createAvatarPlaceholder(username: string, size: number = 64): string {
