@@ -347,6 +347,19 @@ pub fn run() {
     let minecraft_processes: Arc<Mutex<HashMap<String, u32>>> = Arc::new(Mutex::new(HashMap::new()));
     
     tauri::Builder::default()
+        .plugin({
+            // Block reload (F5/Ctrl+R) and the DevTools shortcut (Ctrl+Shift+I) in
+            // release builds only, so the dev workflow (hot reload, inspecting) is
+            // untouched while `pnpm tauri dev` is running.
+            let flags = if cfg!(debug_assertions) {
+                tauri_plugin_prevent_default::Flags::empty()
+            } else {
+                tauri_plugin_prevent_default::Flags::RELOAD | tauri_plugin_prevent_default::Flags::DEV_TOOLS
+            };
+            tauri_plugin_prevent_default::Builder::new()
+                .with_flags(flags)
+                .build()
+        })
         .plugin(tauri_plugin_updater::Builder::default().build())
         .plugin(tauri_plugin_sql::Builder::default().build())
         .plugin(tauri_plugin_notification::init())
