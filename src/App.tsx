@@ -954,6 +954,7 @@ function App() {
                       </div>
                     </div>
                     <div className={`inline-block transition-all duration-500 delay-400 ${isLoginVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
+                <div className="inline-block hover:scale-105 transition-transform duration-300 ease-out">
                 <BorderBeam size="md" colorVariant="sunset" theme="dark" borderRadius={16}>
                   <Button
                         onClick={handleMicrosoftAuth}
@@ -961,13 +962,14 @@ function App() {
                         className="relative glass-light hover:bg-white/10 text-white border-2 border-white/20 hover:border-[#d4af37]/50
                                  rounded-2xl px-16 py-6 text-2xl font-semibold transition-all duration-300 ease-out
                                  shadow-2xl hover:shadow-[0_0_30px_rgba(212,175,55,0.3)] group overflow-hidden min-w-[380px]
-                                 cursor-pointer hover:scale-105 neon-glow-cyan-hover"
+                                 cursor-pointer hover:scale-100 neon-glow-cyan-hover"
                       >
                         <div className="absolute inset-0 bg-gradient-to-r from-transparent via-[#d4af37]/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
                         <img src={microsoftIcon} alt="Microsoft" className="w-8 h-8 mr-3 relative z-10" />
                         <span className="relative z-10 font-heading tracking-wide">{t('auth:signIn')}</span>
                   </Button>
                 </BorderBeam>
+                </div>
               </div>
             </div>
                 </div>
