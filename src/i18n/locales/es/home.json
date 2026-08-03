@@ -1,0 +1,9 @@
+{
+  "ipCopied": "IP copiada al portapapeles",
+  "ipCopyFailed": "No se pudo copiar la IP",
+  "checkingServer": "Consultando servidor...",
+  "playersOnline": "jugadores online",
+  "serverOffline": "Servidor offline",
+  "play": "Jugar",
+  "playInstance": "Jugar a {{instance}}"
+}

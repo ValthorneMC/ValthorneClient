@@ -1,0 +1,21 @@
+{
+  "play": "JUGAR",
+  "hoursPlayed_one": "{{count}}h jugada",
+  "hoursPlayed_other": "{{count}}h jugadas",
+  "unknown": "Instancia desconocida",
+  "notFound": {
+    "title": "Instancia no encontrada",
+    "body": "La instancia seleccionada no se pudo cargar."
+  },
+  "videoUnsupported": "Tu navegador no soporta videos HTML5.",
+  "launched": "Instancia \"{{name}}\" lanzada correctamente",
+  "launchFailed": "Error lanzando {{name}}",
+  "assetsDownloadFailed": "Error descargando assets de la instancia",
+  "distributionLoaded": "¡Instancia cargada correctamente!",
+  "distributionFailed": "Error al cargar la distribución",
+  "loadingDistribution": "Cargando distribución...",
+  "downloadingAssets": "Descargando assets de instancia...",
+  "starting": "Iniciando instancia...",
+  "assetsDownloaded": "Assets descargados",
+  "downloadingAssetsShort": "Descargando assets de instancia"
+}

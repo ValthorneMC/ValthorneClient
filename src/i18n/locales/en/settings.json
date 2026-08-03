@@ -1,0 +1,62 @@
+{
+  "title": "Settings",
+  "language": {
+    "title": "Language",
+    "description": "Choose the launcher language. \"Automatic\" follows your system language.",
+    "auto": "Automatic"
+  },
+  "java": {
+    "title": "Java configuration",
+    "ram": "RAM memory",
+    "minRam": "Minimum RAM",
+    "maxRam": "Maximum RAM",
+    "gigabytes": "GB"
+  },
+  "jvm": {
+    "title": "JVM configuration",
+    "garbageCollector": "Garbage collector",
+    "gcHint": "The Garbage Collector (GC) frees unused memory in Java. G1 is balanced, ZGC has ultra-low pauses for gaming, and Parallel maximizes throughput.",
+    "gcRecommended": "Recommended",
+    "gcLowLatency": "Low latency",
+    "gcHighPerformance": "High performance",
+    "extraArgs": "Additional JVM arguments",
+    "extraArgsHint": "Only use this field if you know what you are doing."
+  },
+  "window": {
+    "title": "Window configuration",
+    "resolution": "Resolution",
+    "width": "Width",
+    "height": "Height"
+  },
+  "updates": {
+    "title": "Updates",
+    "readyToInstall": "Update ready to install",
+    "newVersionAvailable": "New version available: {{version}}",
+    "upToDate": "You are on the latest version",
+    "progress": "Progress",
+    "checking": "Checking...",
+    "check": "Check for updates",
+    "downloading": "Downloading...",
+    "download": "Download update",
+    "install": "Install update",
+    "available": "Update {{version}} available",
+    "confirmTitle": "Install update",
+    "confirmBody": "Are you sure you want to install the update? The app will restart after installing.",
+    "confirmInstall": "Install"
+  },
+  "logs": {
+    "title": "Logs",
+    "openFrontendFolder": "Open frontend folder",
+    "openBackendFolder": "Open backend folder"
+  },
+  "discord": {
+    "title": "Discord Rich Presence",
+    "enable": "Enable Discord RPC",
+    "hint": "Shows the client status on your Discord profile",
+    "enabled": "Enabled",
+    "disabled": "Disabled",
+    "toastEnabled": "Discord RPC enabled",
+    "toastDisabled": "Discord RPC disabled",
+    "toastFailed": "Could not change the Discord RPC state"
+  }
+}

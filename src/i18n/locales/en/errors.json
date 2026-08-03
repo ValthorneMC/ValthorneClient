@@ -1,0 +1,21 @@
+{
+  "error": {
+    "auth": {
+      "no_code": "Microsoft's response did not include the authorization code",
+      "cancelled": "Sign-in cancelled",
+      "window_failed": "The sign-in window could not be opened",
+      "internal": "Internal error while waiting for the sign-in to finish",
+      "timeout": "Timed out waiting for the sign-in"
+    },
+    "skin": {
+      "not_png": "The file is not a valid PNG",
+      "invalid_size": "The skin must be 64x64 (or 64x32 for legacy classic skins), but it is {{0}}"
+    },
+    "config": {
+      "dir_unavailable": "The configuration directory could not be resolved",
+      "read_failed": "The configuration could not be read",
+      "parse_failed": "The configuration file is corrupted",
+      "write_failed": "The configuration could not be saved"
+    }
+  }
+}

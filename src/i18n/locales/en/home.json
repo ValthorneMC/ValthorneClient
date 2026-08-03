@@ -1,0 +1,9 @@
+{
+  "ipCopied": "IP copied to the clipboard",
+  "ipCopyFailed": "The IP could not be copied",
+  "checkingServer": "Checking server...",
+  "playersOnline": "players online",
+  "serverOffline": "Server offline",
+  "play": "Play",
+  "playInstance": "Play {{instance}}"
+}

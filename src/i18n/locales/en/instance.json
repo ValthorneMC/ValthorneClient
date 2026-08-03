@@ -1,0 +1,21 @@
+{
+  "play": "PLAY",
+  "hoursPlayed_one": "{{count}}h played",
+  "hoursPlayed_other": "{{count}}h played",
+  "unknown": "Unknown instance",
+  "notFound": {
+    "title": "Instance not found",
+    "body": "The selected instance could not be loaded."
+  },
+  "videoUnsupported": "Your browser does not support HTML5 video.",
+  "launched": "Instance \"{{name}}\" launched successfully",
+  "launchFailed": "Error launching {{name}}",
+  "assetsDownloadFailed": "Error downloading the instance assets",
+  "distributionLoaded": "Instance loaded successfully!",
+  "distributionFailed": "The distribution could not be loaded",
+  "loadingDistribution": "Loading distribution...",
+  "downloadingAssets": "Downloading instance assets...",
+  "starting": "Starting instance...",
+  "assetsDownloaded": "Assets downloaded",
+  "downloadingAssetsShort": "Downloading instance assets"
+}

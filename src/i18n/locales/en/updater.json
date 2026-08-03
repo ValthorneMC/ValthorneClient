@@ -1,0 +1,32 @@
+{
+  "checkFailed": "Could not check for updates",
+  "downloadFailed": "Could not download the update",
+  "installFailed": "Could not install the update",
+  "notDownloaded": "There is no update ready to install. Download it first.",
+  "downloaded": "Update downloaded. Ready to install.",
+  "downloadedShort": "Update downloaded successfully",
+  "installed": "Update installed. Restarting...",
+  "installedRestart": "Update installed. The app will restart.",
+  "readyToInstall": "Update ready to install",
+  "upToDate": "You are on the latest version",
+  "version": "Version {{version}}",
+  "clickToInstall": "Click to install",
+  "newUpdateDownloading": "Downloading the new update",
+  "newUpdateReady": "New update ready to install",
+  "dialog": {
+    "readyTitle": "Update Ready",
+    "readyBody": "An update has been downloaded and is ready to install. The app will restart after installing.",
+    "installNow": "Install Now",
+    "availableTitle": "Update Available",
+    "availableBody": "A new version is available ({{version}}). Do you want to download it now?",
+    "download": "Download",
+    "later": "Later"
+  },
+  "progress": {
+    "starting": "Starting download...",
+    "downloading": "Downloading...",
+    "downloadComplete": "Download complete",
+    "installing": "Installing update...",
+    "installComplete": "Installation complete"
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "loading": "Cargando...",
+  "cancel": "Cancelar",
+  "close": "Cerrar",
+  "save": "Guardar",
+  "unknownError": "Error desconocido",
+  "sidebar": {
+    "home": "Inicio",
+    "changeSkin": "Cambiar Skin",
+    "settings": "Ajustes"
+  },
+  "loader": {
+    "stillHere": "¿Llevas mucho tiempo aquí?",
+    "reload": "Recarga el launcher"
+  },
+  "account": {
+    "avatarAlt": "Avatar de {{username}}",
+    "add": "Añadir cuenta",
+    "logout": "Cerrar sesión"
+  },
+  "closeDialog": {
+    "title": "Descarga en progreso",
+    "body": "Hay una descarga en progreso. Si cierras la aplicación ahora, la descarga se cancelará. ¿Estás seguro de que quieres cerrar?"
+  },
+  "discordPresence": {
+    "inClient": "En el cliente",
+    "joinButton": "Únete al Discord"
+  }
+}

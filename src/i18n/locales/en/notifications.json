@@ -1,0 +1,10 @@
+{
+  "javaInstalled": {
+    "title": "Java installed",
+    "body": "Java {{version}} was installed successfully"
+  },
+  "instanceReady": {
+    "title": "Instance ready",
+    "body": "The instance \"{{name}}\" finished downloading"
+  }
+}

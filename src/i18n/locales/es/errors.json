@@ -1,0 +1,21 @@
+{
+  "error": {
+    "auth": {
+      "no_code": "No se encontró el código de autorización en la respuesta de Microsoft",
+      "cancelled": "Inicio de sesión cancelado",
+      "window_failed": "No se pudo abrir la ventana de inicio de sesión",
+      "internal": "Error interno esperando el inicio de sesión",
+      "timeout": "Tiempo de espera agotado para iniciar sesión"
+    },
+    "skin": {
+      "not_png": "El archivo no es un PNG válido",
+      "invalid_size": "La skin debe medir 64x64 (o 64x32 para skins clásicas antiguas), pero mide {{0}}"
+    },
+    "config": {
+      "dir_unavailable": "No se pudo obtener el directorio de configuración",
+      "read_failed": "Error leyendo la configuración",
+      "parse_failed": "El archivo de configuración está corrupto",
+      "write_failed": "Error guardando la configuración"
+    }
+  }
+}

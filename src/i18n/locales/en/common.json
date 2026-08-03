@@ -1,0 +1,29 @@
+{
+  "loading": "Loading...",
+  "cancel": "Cancel",
+  "close": "Close",
+  "save": "Save",
+  "unknownError": "Unknown error",
+  "sidebar": {
+    "home": "Home",
+    "changeSkin": "Change skin",
+    "settings": "Settings"
+  },
+  "loader": {
+    "stillHere": "Been waiting a while?",
+    "reload": "Reload the launcher"
+  },
+  "account": {
+    "avatarAlt": "{{username}}'s avatar",
+    "add": "Add account",
+    "logout": "Log out"
+  },
+  "closeDialog": {
+    "title": "Download in progress",
+    "body": "A download is in progress. If you close the app now the download will be cancelled. Are you sure you want to close?"
+  },
+  "discordPresence": {
+    "inClient": "In the client",
+    "joinButton": "Join the Discord"
+  }
+}

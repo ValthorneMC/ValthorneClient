@@ -1,0 +1,32 @@
+{
+  "checkFailed": "Error al verificar actualizaciones",
+  "downloadFailed": "Error al descargar la actualización",
+  "installFailed": "Error al instalar la actualización",
+  "notDownloaded": "No hay actualización lista para instalar. Descarga la actualización primero.",
+  "downloaded": "Actualización descargada. Lista para instalar.",
+  "downloadedShort": "Actualización descargada correctamente",
+  "installed": "Actualización instalada. Reiniciando...",
+  "installedRestart": "Actualización instalada. La aplicación se reiniciará.",
+  "readyToInstall": "Actualización lista para instalar",
+  "upToDate": "Tienes la última versión",
+  "version": "Versión {{version}}",
+  "clickToInstall": "Haz clic para instalar",
+  "newUpdateDownloading": "Descargando nueva actualización",
+  "newUpdateReady": "Nueva actualización lista para instalar",
+  "dialog": {
+    "readyTitle": "Actualización Lista",
+    "readyBody": "Hay una actualización descargada y lista para instalar. La aplicación se reiniciará después de la instalación.",
+    "installNow": "Instalar Ahora",
+    "availableTitle": "Actualización Disponible",
+    "availableBody": "Hay una nueva versión disponible ({{version}}). ¿Quieres descargarla ahora?",
+    "download": "Descargar",
+    "later": "Más Tarde"
+  },
+  "progress": {
+    "starting": "Iniciando descarga...",
+    "downloading": "Descargando...",
+    "downloadComplete": "Descarga completada",
+    "installing": "Instalando actualización...",
+    "installComplete": "Instalación completada"
+  }
+}

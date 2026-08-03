@@ -1,0 +1,62 @@
+{
+  "title": "Ajustes",
+  "language": {
+    "title": "Idioma",
+    "description": "Elige el idioma del launcher. \"Automático\" sigue el idioma de tu sistema.",
+    "auto": "Automático"
+  },
+  "java": {
+    "title": "Configuración de Java",
+    "ram": "Memoria RAM",
+    "minRam": "RAM Mínima",
+    "maxRam": "RAM Máxima",
+    "gigabytes": "GB"
+  },
+  "jvm": {
+    "title": "Configuración de la JVM",
+    "garbageCollector": "Garbage Collector",
+    "gcHint": "El Garbage Collector (GC) libera memoria no utilizada en Java. G1 es balanceado, ZGC tiene pausas ultra-bajas para gaming, y Parallel maximiza el rendimiento.",
+    "gcRecommended": "Recomendado",
+    "gcLowLatency": "Baja latencia",
+    "gcHighPerformance": "Alto rendimiento",
+    "extraArgs": "Argumentos JVM Adicionales",
+    "extraArgsHint": "Utiliza este campo solo si sabes lo que estás haciendo."
+  },
+  "window": {
+    "title": "Configuración de Ventana",
+    "resolution": "Resolución",
+    "width": "Ancho",
+    "height": "Alto"
+  },
+  "updates": {
+    "title": "Actualizaciones",
+    "readyToInstall": "Actualización lista para instalar",
+    "newVersionAvailable": "Nueva versión disponible: {{version}}",
+    "upToDate": "Tienes la última versión",
+    "progress": "Progreso",
+    "checking": "Verificando...",
+    "check": "Verificar actualizaciones",
+    "downloading": "Descargando...",
+    "download": "Descargar actualización",
+    "install": "Instalar actualización",
+    "available": "Actualización {{version}} disponible",
+    "confirmTitle": "Instalar Actualización",
+    "confirmBody": "¿Estás seguro de que quieres instalar la actualización? La aplicación se reiniciará después de la instalación.",
+    "confirmInstall": "Instalar"
+  },
+  "logs": {
+    "title": "Logs",
+    "openFrontendFolder": "Abrir carpeta de frontend",
+    "openBackendFolder": "Abrir carpeta de backend"
+  },
+  "discord": {
+    "title": "Discord Rich Presence",
+    "enable": "Habilitar Discord RPC",
+    "hint": "Muestra el estado del cliente en tu perfil de Discord",
+    "enabled": "Activado",
+    "disabled": "Desactivado",
+    "toastEnabled": "Discord RPC activado",
+    "toastDisabled": "Discord RPC desactivado",
+    "toastFailed": "Error al cambiar estado de Discord RPC"
+  }
+}
