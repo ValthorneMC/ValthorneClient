@@ -1,6 +1,5 @@
 use anyhow::Result;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 pub struct MinecraftLauncher {
     pub config: LauncherConfig,
@@ -40,55 +39,6 @@ pub fn get_required_java_version_for_minecraft(mc_version: &str) -> u8 {
         return 16;
     }
     8
-}
-
-#[allow(dead_code)]
-pub async fn find_java_executable() -> Result<String, String> {
-    let common_paths = [
-        "java",
-        "/usr/bin/java",
-        "/usr/local/bin/java",
-        "C:\\Program Files\\Java\\bin\\java.exe",
-        "C:\\Program Files (x86)\\Java\\bin\\java.exe",
-    ];
-
-    for path in &common_paths {
-        #[cfg(target_os = "windows")]
-        {
-            use std::os::windows::process::CommandExt;
-            if let Ok(output) = Command::new(path)
-                .arg("-version")
-                .creation_flags(0x08000000)
-                .output() {
-                if output.status.success() {
-                    return Ok(path.to_string());
-                }
-            }
-        }
-        
-        #[cfg(not(target_os = "windows"))]
-        {
-        if let Ok(output) = Command::new(path).arg("-version").output() {
-            if output.status.success() {
-                return Ok(path.to_string());
-                }
-            }
-        }
-    }
-
-    let java_path = get_java_path_from_env();
-    if !java_path.is_empty() {
-        return Ok(java_path);
-    }
-
-    // If not found, try to use Java 8 as a fallback from runtime
-    let java_8_path = crate::utils::java_executable_for_version("8");
-
-    if java_8_path.exists() {
-        return Ok(java_8_path.to_string_lossy().to_string());
-    }
-
-    Err("Java executable not found. Please ensure Java is installed.".to_string())
 }
 
 /// Automatically finds or installs the Java executable for a specific Minecraft version
@@ -171,26 +121,6 @@ async fn download_java_silent(java_version: u8) -> Result<(), String> {
     
     log::info!("Java {} installed successfully", version_str);
     Ok(())
-}
-
-#[allow(dead_code)]
-fn get_java_path_from_env() -> String {
-    std::env::var("JAVA_HOME")
-        .map(|java_home| format!("{}/bin/java", java_home))
-        .unwrap_or_else(|_| {
-            let possible_paths = [
-                ".valthorneclient/java/bin/java",
-                "C:\\Users\\{username}\\.valthorneclient\\java\\bin\\java",
-            ];
-
-            for path in &possible_paths {
-                if std::fs::metadata(path).is_ok() {
-                    return path.to_string();
-                }
-            }
-
-            String::new()
-        })
 }
 
 pub fn build_minecraft_classpath_from_json(instance_dir: &Path, version_json_path: &Path) -> Result<String, String> {
@@ -400,87 +330,6 @@ fn maven_to_path(maven_coords: &str) -> Result<String, String> {
     
     Ok(format!("{}/{}/{}/{}-{}{}.jar", group, artifact, version, artifact, version, classifier))
 }
-
-/// Legacy function for backward compatibility - DO NOT USE FOR NEW CODE
-#[allow(dead_code)]
-pub fn build_minecraft_classpath(instance_dir: &Path) -> Result<String, String> {
-	build_minecraft_classpath_excluding(instance_dir, &std::collections::HashSet::new())
-}
-
-/// Legacy function for backward compatibility - DO NOT USE FOR NEW CODE
-#[allow(dead_code)]
-pub fn build_minecraft_classpath_excluding(instance_dir: &Path, exclude_jars: &std::collections::HashSet<String>) -> Result<String, String> {
-	let mut jars: Vec<String> = Vec::new();
-	
-	let libs_dir = instance_dir.join("libraries");
-	if libs_dir.exists() { collect_jars_recursively_excluding(&libs_dir, &mut jars, exclude_jars)?; }
-	let versions_dir = instance_dir.join("versions");
-	if versions_dir.exists() { collect_jars_recursively_excluding(&versions_dir, &mut jars, exclude_jars)?; }
-	let mods_dir = instance_dir.join("mods");
-	if mods_dir.exists() { collect_jars_recursively_excluding(&mods_dir, &mut jars, exclude_jars)?; }
-	if jars.is_empty() { return Err("No jars found for classpath".to_string()); }
-	
-	Ok(jars.join(if cfg!(target_os = "windows") { ";" } else { ":" }))
-}
-
-
-#[allow(dead_code)]
-fn collect_jars_recursively_excluding(dir: &Path, out: &mut Vec<String>, exclude_jars: &std::collections::HashSet<String>) -> Result<(), String> {
-	for entry in walkdir::WalkDir::new(dir) {
-		let entry = entry.map_err(|e| e.to_string())?;
-		if entry.file_type().is_file() {
-			let p = entry.into_path();
-			if p.extension().map_or(false, |e| e == "jar") {
-				// Normalize the path to compare against exclude_jars
-				let canonical_opt = p.canonicalize().ok();
-				let canonical_str = canonical_opt.as_ref()
-					.map(|c| c.to_string_lossy().to_string());
-				let path_str = p.to_string_lossy().to_string();
-
-				// Remove Windows \\?\ prefix if present
-				let canonical_clean = canonical_str.as_ref()
-					.map(|s| s.strip_prefix("\\\\?\\").unwrap_or(s).to_string());
-				let path_clean = path_str.strip_prefix("\\\\?\\").unwrap_or(&path_str).to_string();
-
-				// Normalize path separators for comparison
-				let normalized_canonical = canonical_clean.as_ref()
-					.map(|s| s.replace("\\", "/"));
-				let normalized_path = path_clean.replace("\\", "/");
-
-				// Check whether it's excluded (compare against all possible variants)
-				let is_excluded = {
-					let mut excluded = false;
-					if let Some(ref canonical) = canonical_str {
-						excluded = excluded || exclude_jars.contains(canonical);
-					}
-					if let Some(ref canonical_clean_str) = canonical_clean {
-						excluded = excluded || exclude_jars.contains(canonical_clean_str);
-					}
-					excluded = excluded || exclude_jars.contains(&path_str);
-					excluded = excluded || exclude_jars.contains(&path_clean);
-					if let Some(ref norm_canonical) = normalized_canonical {
-						excluded = excluded || exclude_jars.contains(norm_canonical);
-					}
-					excluded = excluded || exclude_jars.contains(&normalized_path);
-					excluded
-				};
-				
-				if !is_excluded {
-					// Use dunce::canonicalize to normalize the path correctly on Windows
-					// This automatically converts separators to \ and removes the \\?\ prefix
-					let normalized_path = dunce::canonicalize(&p)
-						.unwrap_or_else(|_| p.clone())
-						.to_string_lossy()
-						.to_string();
-					
-					out.push(normalized_path);
-				}
-			}
-		}
-	}
-	Ok(())
-}
-
 
 pub fn select_main_class(instance_dir: &Path, version_id: Option<&str>) -> String {
     if let Some(vid) = version_id {

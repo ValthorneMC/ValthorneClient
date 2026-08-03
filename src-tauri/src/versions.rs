@@ -50,13 +50,6 @@ pub struct Library {
     pub extract: Option<Extract>,
 }
 
-impl Library {
-    #[allow(dead_code)]
-    pub fn get_extract(&self) -> Option<&Extract> {
-        self.extract.as_ref()
-    }
-}
-
 #[derive(Deserialize, Debug, Clone)]
 pub struct LibraryDownloads {
     pub artifact: Option<LibraryArtifact>,

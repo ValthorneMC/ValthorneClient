@@ -1,6 +1,4 @@
-use crate::models::InstanceManifest;
-use std::collections::HashMap;
-use crate::models::{FileEntry, InstanceAsset, ModLoader};
+use crate::models::ModLoader;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 #[cfg(target_os = "windows")]
@@ -8,94 +6,6 @@ use std::os::windows::process::CommandExt;
 use chrono;
  
 use tauri::Emitter;
-
-pub async fn load_instance_manifest(distribution_url: &str, instance_id: &str) -> Result<InstanceManifest, String> {
-    let base_url = crate::build_distribution_url(distribution_url);
-    let instance_url = format!("{}/instances/{}/instance.json", base_url, instance_id);
-
-    let response = reqwest::get(&instance_url)
-        .await
-        .map_err(|e| format!("Failed to fetch instance manifest: {}", e))?;
-
-    if !response.status().is_success() {
-        let status = response.status();
-        let error_text = response.text().await.unwrap_or_else(|_| "Unknown error".to_string());
-        return Err(format!("HTTP error {}: {}", status, error_text));
-    }
-
-    let text = response.text().await
-        .map_err(|e| format!("Failed to read response text: {}", e))?;
-
-    if text.trim().is_empty() {
-        return Err("Empty response from server".to_string());
-    }
-
-    let manifest: InstanceManifest = serde_json::from_str(&text)
-        .map_err(|e| format!("Failed to parse instance manifest JSON: {}", e))?;
-
-    Ok(manifest)
-}
-
-pub async fn load_checksums(distribution_url: &str, instance_id: &str) -> Result<HashMap<String, String>, String> {
-    let base_url = crate::build_distribution_url(distribution_url);
-    let checksums_url = format!("{}/instances/{}/checksums.json", base_url, instance_id);
-
-    let response = reqwest::get(&checksums_url)
-        .await
-        .map_err(|e| format!("Failed to fetch checksums: {}", e))?;
-
-    if !response.status().is_success() {
-        let status = response.status();
-        let error_text = response.text().await.unwrap_or_else(|_| "Unknown error".to_string());
-        return Err(format!("HTTP error {}: {}", status, error_text));
-    }
-
-    let text = response.text().await
-        .map_err(|e| format!("Failed to read checksums response text: {}", e))?;
-
-    if text.trim().is_empty() {
-        return Err("Empty checksums response from server".to_string());
-    }
-
-    let checksums: HashMap<String, String> = serde_json::from_str(&text)
-        .map_err(|e| format!("Failed to parse checksums JSON: {}", e))?;
-
-    Ok(checksums)
-}
-
-pub fn create_asset_from_file_entry(file_entry: &FileEntry, instance_id: &str, distribution_url: &str) -> InstanceAsset {
-    let base_url = crate::build_distribution_url(distribution_url);
-
-    let resolved_url = if !file_entry.url.is_empty() {
-        if file_entry.url.starts_with("http://") || file_entry.url.starts_with("https://") {
-            file_entry.url.clone()
-        } else {
-            format!("{}/{}", base_url.trim_end_matches('/'), file_entry.url.trim_start_matches('/'))
-        }
-    } else {
-        let server_relative = file_entry
-            .path
-            .trim_start_matches('/')
-            .trim_start_matches("files/");
-        format!(
-            "{}/instances/{}/{}",
-            base_url.trim_end_matches('/'),
-            instance_id,
-            server_relative
-        )
-    };
-
-    InstanceAsset {
-        name: file_entry.name.clone(),
-        path: file_entry.path.clone(),
-        url: resolved_url,
-        sha256: file_entry.sha256.clone(),
-        md5: file_entry.md5.clone(),
-        size: file_entry.size,
-        required: file_entry.required,
-        target: file_entry.target.clone(),
-    }
-}
 
 /// Normalizes a manifest-declared install path into an instance-relative path.
 ///
@@ -115,14 +25,6 @@ pub fn normalize_install_path(manifest_target: &str) -> String {
     }
 
     parts.join("/")
-}
-
-pub fn get_local_file_path(instance_dir: &Path, file_path: &str) -> Result<PathBuf, String> {
-    let rel = normalize_install_path(file_path);
-    if rel.is_empty() {
-        return Err(format!("Invalid file path: {}", file_path));
-    }
-    Ok(instance_dir.join(rel))
 }
 
 pub async fn download_file(url: &str, file_path: &Path) -> Result<(), String> {
@@ -327,57 +229,6 @@ pub fn build_distribution_url(distribution_url: &str) -> String {
     } else {
         distribution_url.trim_end_matches('/').to_string()
     }
-}
-
-pub fn count_instance_files(manifest: &crate::models::InstanceManifest) -> usize {
-    let mut n = manifest.files.mods.len() + manifest.files.configs.len();
-    if let Some(rp) = &manifest.files.resourcepacks { n += rp.len(); }
-    if let Some(sp) = &manifest.files.shaderpacks { n += sp.len(); }
-    n
-}
-
-pub async fn count_mojang_assets_pending(instance_dir: &Path, mc_version: &str) -> Result<usize, String> {
-    let version_dir = instance_dir.join("versions").join(mc_version);
-    let json_path = version_dir.join(format!("{}.json", mc_version));
-    if !json_path.exists() { return Ok(0); }
-    #[derive(serde::Deserialize)]
-    struct AssetIndexRef { id: String, url: String }
-    #[derive(serde::Deserialize)]
-    struct VJson { #[serde(rename="assetIndex")] asset_index: Option<AssetIndexRef> }
-    let vtext = tokio::fs::read_to_string(&json_path).await.map_err(|e| e.to_string())?;
-    let vj: VJson = serde_json::from_str(&vtext).map_err(|e| e.to_string())?;
-    let Some(ai) = vj.asset_index else { return Ok(0); };
-    let assets_dir = instance_dir.join("assets");
-    let indexes_dir = assets_dir.join("indexes");
-    tokio::fs::create_dir_all(&indexes_dir).await.map_err(|e| e.to_string())?;
-    let index_path = indexes_dir.join(format!("{}.json", ai.id));
-    if !index_path.exists() {
-        download_file_with_retry(&ai.url, &index_path).await?;
-    }
-    let index_text = tokio::fs::read_to_string(&index_path).await.map_err(|e| e.to_string())?;
-    #[derive(serde::Deserialize)]
-    struct AssetObject { hash: String }
-    #[derive(serde::Deserialize)]
-    struct AssetIndex { objects: std::collections::HashMap<String, AssetObject> }
-    let aidx: AssetIndex = serde_json::from_str(&index_text).map_err(|e| e.to_string())?;
-    let objects_dir = assets_dir.join("objects");
-    tokio::fs::create_dir_all(&objects_dir).await.map_err(|e| e.to_string())?;
-    let mut pending = 0usize;
-    for (_name, obj) in aidx.objects {
-        let prefix = &obj.hash[0..2];
-        let obj_path = objects_dir.join(prefix).join(&obj.hash);
-        if !obj_path.exists() { pending += 1; }
-    }
-    Ok(pending)
-}
-
-pub async fn create_instance_directory_safe(instance_id: &str, _app_handle: &tauri::AppHandle) -> Result<PathBuf, String> {
-    let data_dir = crate::utils::valthorne_dir().join(instance_id);
-
-    tokio::fs::create_dir_all(&data_dir).await
-        .map_err(|e| format!("Failed to create instance directory: {}", e))?;
-
-    Ok(data_dir)
 }
 
 pub async fn ensure_minecraft_client_present(instance_dir: &Path, mc_version: &str) -> Result<(), String> {

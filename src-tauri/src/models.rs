@@ -112,13 +112,6 @@ fn default_current_version() -> String {
     env!("CARGO_PKG_VERSION").to_string()
 }
 
-impl UpdateState {
-    pub fn with_current_version(mut self) -> Self {
-        self.current_version = env!("CARGO_PKG_VERSION").to_string();
-        self
-    }
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AssetDownloadProgress {
     pub current: u64,
@@ -221,12 +214,6 @@ pub struct LaunchSettings {
     pub min_ram: u32,
     pub recommended_ram: u32,
     pub jvm_args: Option<Vec<String>>,
-}
-
-// Admin system structures
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AdminEntry {
-    pub minecraft_username: String,
 }
 
 // Minecraft version structures

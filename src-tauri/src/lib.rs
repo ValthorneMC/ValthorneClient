@@ -21,7 +21,6 @@ mod sessions_api;
 mod instances;
 mod auth_ms;
 mod commands;
-mod admins;
 mod http_client;
 mod discord_rpc;
 mod server_status;
@@ -34,7 +33,6 @@ pub use sessions_api::*;
 pub use instances::*;
 pub use auth_ms::*;
 pub use commands::*;
-pub use admins::*;
 pub use server_status::*;
 
 
@@ -55,21 +53,6 @@ pub struct AuthSession {
 /// app string. Modrinth App's Minecraft client uses the same pattern.
 pub const MINECRAFT_SERVICES_USER_AGENT: &str =
     "Valthorne Client (contact: valthornemc@gmail.com)";
-
-#[allow(dead_code)]
-async fn validate_access_token(access_token: &str) -> Result<bool, String> {
-    match crate::auth_ms::get_minecraft_profile_from_token(access_token).await {
-        Ok(_) => Ok(true),
-        Err(e) => {
-            let err_str = e.to_string();
-            if err_str.contains("401") || err_str.contains("Unauthorized") {
-                Ok(false)
-            } else {
-                Err(err_str)
-            }
-        }
-    }
-}
 
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "status", content = "data")]
@@ -417,9 +400,7 @@ pub fn run() {
             check_for_updates,
             install_update,
             get_update_state,
-            save_update_state_command,
             download_update_silent,
-            open_url,
             save_session,
             get_session,
             get_active_session,
@@ -435,8 +416,6 @@ pub fn run() {
             get_minecraft_profile_safe,
             clear_update_state,
             download_instance_assets,
-            // Admin system
-            check_is_admin,
             // Server status (home screen)
             get_valthorne_server_status,
             // Skin management

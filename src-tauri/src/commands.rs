@@ -706,12 +706,6 @@ pub async fn get_update_state() -> Result<UpdateState, String> {
     Ok(state)
 }
 
-#[tauri::command]
-pub async fn save_update_state_command(state: UpdateState) -> Result<String, String> {
-    save_update_state(&state).await?;
-    Ok("ok".to_string())
-}
-
 /// Clears any pending update from the persisted state (`launcher.json`).
 ///
 /// Note this is not the legacy `update_state.json`, which is only read once to
@@ -1448,20 +1442,30 @@ pub async fn clear_frontend_logs() -> Result<(), String> {
     Ok(())
 }
 
+// DevTools are only attached in debug builds (the `devtools` Tauri feature that would
+// force-attach them in release is intentionally not enabled), so this command is a no-op
+// in production regardless of who calls it.
+#[cfg(debug_assertions)]
 #[tauri::command]
 pub async fn toggle_devtools(app_handle: tauri::AppHandle) -> Result<(), String> {
     use tauri::Manager;
-    
+
     let window = app_handle.get_webview_window("main")
         .ok_or_else(|| "Main window not found".to_string())?;
-    
+
     // Toggle DevTools: open if closed, close if open
     if window.is_devtools_open() {
         window.close_devtools();
     } else {
         window.open_devtools();
     }
-    
+
+    Ok(())
+}
+
+#[cfg(not(debug_assertions))]
+#[tauri::command]
+pub async fn toggle_devtools(_app_handle: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
