@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Copy } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
-import valthorneLogo from '@/assets/valthorne.png';
+import valthorneLogoFullText from '@/assets/logo_full_text.svg';
 import AppBackground from '@/components/AppBackground';
 import { logger } from '@/utils/logger';
 
@@ -80,13 +80,10 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ instanceName, onPlay, addToast 
           }`}
         >
           <img
-            src={valthorneLogo}
+            src={valthorneLogoFullText}
             alt="Valthorne"
-            className="w-48 h-48 object-contain mx-auto select-none drop-shadow-[0_0_40px_rgba(124,77,189,0.35)]"
+            className="w-[28rem] max-w-full h-auto object-contain mx-auto select-none drop-shadow-[0_0_40px_rgba(124,77,189,0.35)]"
           />
-          <h1 className="font-display text-4xl tracking-[0.2em] text-center mt-4 text-[#e8dcc0] drop-shadow-[0_2px_6px_rgba(0,0,0,0.6)]">
-            VALTHORNE
-          </h1>
         </div>
 
         <div

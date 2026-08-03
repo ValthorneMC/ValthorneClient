@@ -23,7 +23,7 @@ import { sendNotificationSafe, initializeNotificationPermissions } from "@/utils
 import { showIndeterminateProgressBar, hideProgressBar } from "@/utils/progressBar";
 import { UpdaterService } from "@/services/updater";
 import { SessionService } from "@/services/sessions";
-import valthorneLogo from "@/assets/valthorne.png";
+import valthorneLogoFullText from "@/assets/logo_full_text.svg";
 import microsoftIcon from "@/assets/icons/microsoft.svg";
 import { logger } from "@/utils/logger";
 import { i18n, translateBackendError } from "@/i18n";
@@ -947,14 +947,14 @@ function App() {
                     <div className={`mb-10 transition-all duration-500 delay-200 ${isLoginVisible ? 'opacity-100 scale-100' : 'opacity-0 scale-95'}`}>
                       <div className="p-12 inline-block">
                         <img
-                          src={valthorneLogo}
+                          src={valthorneLogoFullText}
                           alt="Valthorne"
-                          className="w-48 h-48 mx-auto object-contain transition-all duration-500 group-hover:brightness-110 group-hover:contrast-110 group-hover:drop-shadow-[0_0_40px_rgba(212,175,55,0.4)] group-hover:scale-105 select-none"
+                          className="w-[28rem] max-w-full h-auto mx-auto object-contain transition-all duration-500 group-hover:brightness-110 group-hover:contrast-110 group-hover:drop-shadow-[0_0_40px_rgba(212,175,55,0.4)] group-hover:scale-105 select-none"
                         />
                       </div>
                     </div>
-                    <div className={`transition-all duration-500 delay-400 ${isLoginVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
-                <BorderBeam size="sm" colorVariant="sunset" theme="dark" borderRadius={16}>
+                    <div className={`inline-block transition-all duration-500 delay-400 ${isLoginVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
+                <BorderBeam size="md" colorVariant="sunset" theme="dark" borderRadius={16}>
                   <Button
                         onClick={handleMicrosoftAuth}
                         disabled={isLoading}
