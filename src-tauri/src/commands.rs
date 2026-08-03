@@ -537,10 +537,19 @@ pub async fn install_update(app_handle: AppHandle, pending: State<'_, PendingUpd
 
     // On Windows the installer exits the app on its own; on macOS and Linux the new
     // bundle is only swapped in place, so the running process has to be restarted.
+    //
+    // `app_handle.restart()` is called here from an async command, i.e. off Tauri's
+    // main thread, which routes through `request_exit` + a `restart_on_exit` flag
+    // instead of restarting immediately. That path has a known race on macOS where
+    // the process exits before the relaunch is spawned, so the app just quits
+    // (https://github.com/tauri-apps/tauri/issues/11392, #13923). Calling
+    // `cleanup_before_exit` + `process::restart` directly, the same way `restart()`
+    // itself does when invoked from the main thread, avoids that race.
     #[cfg(not(target_os = "windows"))]
     {
         log::info!("Update installed, restarting app");
-        app_handle.restart();
+        app_handle.cleanup_before_exit();
+        tauri::process::restart(&app_handle.env());
     }
 
     #[cfg(target_os = "windows")]

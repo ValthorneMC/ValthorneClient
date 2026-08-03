@@ -953,8 +953,8 @@ function App() {
                         />
                       </div>
                     </div>
-                    <div className={`transition-all duration-500 delay-400 ${isLoginVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
-                <BorderBeam size="sm" colorVariant="sunset" theme="dark" borderRadius={16}>
+                    <div className={`inline-block transition-all duration-500 delay-400 ${isLoginVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
+                <BorderBeam size="md" colorVariant="sunset" theme="dark" borderRadius={16}>
                   <Button
                         onClick={handleMicrosoftAuth}
                         disabled={isLoading}
