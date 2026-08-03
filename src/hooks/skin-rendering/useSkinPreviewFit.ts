@@ -33,7 +33,7 @@ function cloneModelTuple(tuple: SkinPreviewTuple): SkinPreviewTuple {
   return [tuple[0], tuple[1], tuple[2]];
 }
 
-export interface CameraConfig {
+interface CameraConfig {
   fov: number;
   position: SkinPreviewTuple;
   target: SkinPreviewTuple;

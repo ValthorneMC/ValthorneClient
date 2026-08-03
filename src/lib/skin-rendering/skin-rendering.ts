@@ -6,7 +6,7 @@ import * as THREE from 'three';
 import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 
-export interface SkinRendererConfig {
+interface SkinRendererConfig {
   textureColorSpace?: THREE.ColorSpace;
   textureFlipY?: boolean;
   textureMagFilter?: THREE.MagnificationTextureFilter;
@@ -225,18 +225,6 @@ export function applyCapeTexture(
   });
 }
 
-export function findBodyNode(model: THREE.Object3D): THREE.Object3D | null {
-  let bodyNode: THREE.Object3D | null = null;
-
-  model.traverse((node) => {
-    if (node.name === 'Body') {
-      bodyNode = node;
-    }
-  });
-
-  return bodyNode;
-}
-
 export function createTransparentTexture(): THREE.Texture {
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = 1;
@@ -253,37 +241,3 @@ export function createTransparentTexture(): THREE.Texture {
   return texture;
 }
 
-export async function setupSkinModel(
-  modelUrl: string,
-  textureUrl: string,
-  capeTextureUrl?: string,
-  config: SkinRendererConfig = {},
-): Promise<{
-  model: THREE.Object3D;
-  bodyNode: THREE.Object3D | null;
-}> {
-  const [gltf, texture] = await Promise.all([loadModel(modelUrl), loadTexture(textureUrl, config)]);
-
-  const model = gltf.scene.clone();
-  applyTexture(model, texture);
-
-  if (capeTextureUrl) {
-    const capeTexture = await loadTexture(capeTextureUrl, config);
-    applyCapeTexture(model, capeTexture);
-  }
-
-  const bodyNode = findBodyNode(model);
-
-  return { model, bodyNode };
-}
-
-export function disposeCaches(): void {
-  Array.from(textureCache.values()).forEach((texture) => {
-    texture.dispose();
-  });
-
-  textureCache.clear();
-  texturePromiseCache.clear();
-  modelCache.clear();
-  modelPromiseCache.clear();
-}

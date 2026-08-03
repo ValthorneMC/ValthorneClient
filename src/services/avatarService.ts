@@ -138,15 +138,6 @@ export async function loadAvatarWithFallback(
   return createPlaceholderSvg(username, size);
 }
 
-export function getAvatarUrlFromProvider(
-  provider: AvatarProvider,
-  uuid: string,
-  size: number = 64,
-  overlay: boolean = true
-): string {
-  return getAvatarUrl(provider, uuid, size, overlay);
-}
-
 function getSkinTextureUrl(provider: AvatarProvider, uuid: string): string {
   const uuidClean = uuid.replace(/-/g, '');
 

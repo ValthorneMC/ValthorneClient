@@ -258,6 +258,3 @@ class FrontendLogger {
 // Export singleton instance
 export const logger = FrontendLogger.getInstance();
 
-// Also export the class for special cases
-export default FrontendLogger;
-

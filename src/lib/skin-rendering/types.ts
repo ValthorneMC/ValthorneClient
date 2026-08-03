@@ -28,5 +28,3 @@ export interface SkinPreviewFitLock {
 }
 
 export type SkinPreviewTuple = [number, number, number];
-
-export type SkinVariant = 'SLIM' | 'CLASSIC' | 'UNKNOWN';

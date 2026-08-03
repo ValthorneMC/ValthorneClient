@@ -131,25 +131,6 @@ export class SkinStorageService {
     }
   }
 
-  static async clearAllSkins(): Promise<void> {
-    try {
-      const metadata = await this.getSkinsMetadata();
-      
-      for (const meta of metadata) {
-        try {
-          await invoke('delete_skin_file', { skinId: meta.id });
-        } catch (err) {
-        }
-      }
-
-      localStorage.removeItem(SKINS_METADATA_KEY);
-      localStorage.removeItem(ACTIVE_SKIN_KEY);
-    } catch (error) {
-      void logger.error('Error clearing skins', error, 'SkinStorageService');
-      throw new Error('Error al limpiar skins');
-    }
-  }
-
   // --- Cape metadata (capes themselves live server-side on Mojang; we only cache the
   // locally-known active cape id for optimistic UI while a set/remove request is in flight) ---
 

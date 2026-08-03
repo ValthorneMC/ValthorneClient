@@ -14,7 +14,7 @@ type AnimationFinishedListener = (
   },
 ) => void;
 
-export const INTERACT_ANIMATION_NAME = 'interact';
+const INTERACT_ANIMATION_NAME = 'interact';
 
 const INTERACT_VISIBLE_DURATION_SECONDS = 0.5;
 const CLICK_IMPULSE_MAX_ENERGY = 5;
@@ -32,7 +32,7 @@ const DAMAGE_FLASH_DURATION_SECONDS = 0.2;
 const DAMAGE_FLASH_REPEAT_DELAY_SECONDS = 0.5;
 const DAMAGE_FLASH_MAX_INTENSITY = 0.7;
 
-export interface SkinPreviewAnimationImpulse {
+interface SkinPreviewAnimationImpulse {
   clickImpulseOffsetX: number;
   clickImpulseRotationZ: number;
   clickImpulseScaleX: number;

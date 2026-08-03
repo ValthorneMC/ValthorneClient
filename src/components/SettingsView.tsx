@@ -469,7 +469,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ addToast, scrollToUpdates =
                   <div className="mb-6">
                     <div className="flex items-center justify-between mb-2">
                       <label className="text-white/80 font-medium">{t('java.minRam')}</label>
-                      <span className="text-white font-bold transition-all duration-100 ease-out">{displayMinRam.toFixed(displayMinRam % 1 === 0 ? 0 : 1)} GB</span>
+                      <span className="text-white font-bold transition-all duration-100 ease-out">{displayMinRam.toFixed(displayMinRam % 1 === 0 ? 0 : 1)} {t('java.gigabytes')}</span>
                     </div>
                     <div className="relative ">
                       <input
@@ -489,7 +489,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ addToast, scrollToUpdates =
                   <div className="mb-4">
                     <div className="flex items-center justify-between mb-2">
                       <label className="text-white/80 font-medium">{t('java.maxRam')}</label>
-                      <span className="text-white font-bold transition-all duration-100 ease-out">{displayMaxRam.toFixed(displayMaxRam % 1 === 0 ? 0 : 1)} GB</span>
+                      <span className="text-white font-bold transition-all duration-100 ease-out">{displayMaxRam.toFixed(displayMaxRam % 1 === 0 ? 0 : 1)} {t('java.gigabytes')}</span>
                     </div>
                     <div className="relative">
                       <input
