@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useSyncExternalStore } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import { useTranslation } from "react-i18next";
 import { CircleCheck, RefreshCw, TriangleAlert } from "lucide-react";
@@ -9,15 +9,13 @@ import { register } from "@tauri-apps/plugin-global-shortcut";
 import { Button } from "@/components/ui/button";
 import { BorderBeam } from "border-beam";
 import Loader from "@/components/Loader";
-import { Toaster } from "vibe-toast";
+import { Toaster, toast } from "vibe-toast";
 import { addAppToast } from "@/utils/appToast";
 import Sidebar from "@/components/Sidebar";
 import UserProfile from "@/components/UserProfile";
 import SettingsView from "@/components/SettingsView";
 import InstanceView from "@/components/InstanceView";
 import HomeScreen from "@/components/HomeScreen";
-import DownloadProgressToast from "@/components/DownloadProgressToast";
-import UpdateReadyToast from "@/components/UpdateReadyToast";
 import { SkinManager } from "@/components/skin/SkinManager";
 import { sendNotificationSafe, initializeNotificationPermissions } from "@/utils/notifications";
 import { showIndeterminateProgressBar, hideProgressBar } from "@/utils/progressBar";
@@ -49,6 +47,53 @@ const updateDiscordPresence = async (state: string, details: string) => {
     void logger.debug('Discord RPC update failed (may not be enabled)', 'updateDiscordPresence');
   }
 };
+type ProgressToastState = { title: string; percentage: number; complete: boolean };
+
+function createProgressStore(initial: ProgressToastState) {
+  let state = initial;
+  const listeners = new Set<() => void>();
+  return {
+    get: () => state,
+    set: (next: ProgressToastState) => {
+      state = next;
+      listeners.forEach((l) => l());
+    },
+    subscribe: (cb: () => void) => {
+      listeners.add(cb);
+      return () => listeners.delete(cb);
+    },
+  };
+}
+type ProgressStore = ReturnType<typeof createProgressStore>;
+
+function LiveProgressTitle({ store }: { store: ProgressStore }) {
+  const state = useSyncExternalStore(store.subscribe, store.get);
+  return <>{state.title}</>;
+}
+
+function LiveProgressBody({ store }: { store: ProgressStore }) {
+  const state = useSyncExternalStore(store.subscribe, store.get);
+  return <ToastProgressBar percentage={state.percentage} complete={state.complete} />;
+}
+
+function ToastProgressBar({ percentage, complete }: { percentage: number; complete: boolean }) {
+  return (
+    <div
+      className="mt-2 w-full h-2 rounded-full overflow-hidden"
+      style={{ background: complete ? 'rgba(34, 197, 94, 0.2)' : 'rgba(59, 130, 246, 0.2)' }}
+    >
+      <div
+        className="h-full rounded-full transition-all duration-500 ease-out"
+        style={{
+          width: `${percentage}%`,
+          backgroundColor: complete ? 'rgb(74, 222, 128)' : 'rgb(147, 197, 253)',
+          boxShadow: complete ? '0 0 8px rgba(74, 222, 128, 0.6)' : '0 0 8px rgba(147, 197, 253, 0.6)',
+        }}
+      />
+    </div>
+  );
+}
+
 type AssetDownloadProgress = {
   current: number;
   total: number;
@@ -372,6 +417,95 @@ function App() {
   const [updateDownloadVersion, setUpdateDownloadVersion] = useState<string | null>(null);
   const [updateReadyVersion, setUpdateReadyVersion] = useState<string | null>(null);
   const [closeDialogOpen, setCloseDialogOpen] = useState(false);
+
+  const assetsToastIdRef = useRef<string | null>(null);
+  const assetsToastStoreRef = useRef<ProgressStore | null>(null);
+  const updateDownloadToastIdRef = useRef<string | null>(null);
+  const updateDownloadToastStoreRef = useRef<ProgressStore | null>(null);
+  const updateReadyToastIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (downloadProgress) {
+      const complete = downloadProgress.status === 'Completed';
+      const title = complete ? t('instance:assetsDownloaded') : t('instance:downloadingAssetsShort');
+      if (assetsToastStoreRef.current) {
+        assetsToastStoreRef.current.set({ title, percentage: downloadProgress.percentage, complete });
+      } else {
+        const store = createProgressStore({ title, percentage: downloadProgress.percentage, complete });
+        assetsToastStoreRef.current = store;
+        assetsToastIdRef.current = toast({
+          title: <LiveProgressTitle store={store} />,
+          description: <LiveProgressBody store={store} />,
+          variant: 'info',
+          duration: Infinity,
+          dismissible: true,
+          style: { accent: 'rgb(59, 130, 246)' },
+          onDismiss: () => setDownloadProgress(null),
+        });
+      }
+    } else if (assetsToastIdRef.current) {
+      toast.dismiss(assetsToastIdRef.current);
+      assetsToastIdRef.current = null;
+      assetsToastStoreRef.current = null;
+    }
+  }, [downloadProgress, t]);
+
+  useEffect(() => {
+    if (updateDownloadProgress !== null && updateDownloadVersion) {
+      const complete = updateDownloadProgress >= 100;
+      const title = t('updater:newUpdateDownloading');
+      if (updateDownloadToastStoreRef.current) {
+        updateDownloadToastStoreRef.current.set({ title, percentage: updateDownloadProgress, complete });
+      } else {
+        const store = createProgressStore({ title, percentage: updateDownloadProgress, complete });
+        updateDownloadToastStoreRef.current = store;
+        updateDownloadToastIdRef.current = toast({
+          title: <LiveProgressTitle store={store} />,
+          description: <LiveProgressBody store={store} />,
+          variant: 'info',
+          duration: Infinity,
+          dismissible: true,
+          style: { accent: 'rgb(59, 130, 246)' },
+          onDismiss: () => {
+            setUpdateDownloadProgress(null);
+            setUpdateDownloadVersion(null);
+          },
+        });
+      }
+    } else if (updateDownloadToastIdRef.current) {
+      toast.dismiss(updateDownloadToastIdRef.current);
+      updateDownloadToastIdRef.current = null;
+      updateDownloadToastStoreRef.current = null;
+    }
+  }, [updateDownloadProgress, updateDownloadVersion, t]);
+
+  useEffect(() => {
+    if (updateReadyVersion) {
+      updateReadyToastIdRef.current = toast({
+        title: t('updater:newUpdateReady'),
+        description: t('updater:version', { version: updateReadyVersion }),
+        variant: 'default',
+        duration: Infinity,
+        dismissible: true,
+        style: { accent: 'rgb(168, 85, 247)' },
+        actions: [{
+          label: t('updater:dialog.installNow'),
+          onClick: () => {
+            setScrollToUpdates(true);
+            setSettingsOpen(true);
+            setSelectedInstance(null);
+            setSkinViewOpen(false);
+            setUpdateReadyVersion(null);
+          },
+        }],
+        onDismiss: () => setUpdateReadyVersion(null),
+      });
+    } else if (updateReadyToastIdRef.current) {
+      toast.dismiss(updateReadyToastIdRef.current);
+      updateReadyToastIdRef.current = null;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [updateReadyVersion, t]);
 
   useEffect(() => {
     void logger.info('Application started', 'APP');
@@ -1039,40 +1173,6 @@ function App() {
         </div>
       )}
 
-      <div className="pointer-events-none fixed bottom-4 right-4 z-[10000] flex flex-col gap-2">
-        <div className="pointer-events-auto flex flex-col gap-2">
-          {downloadProgress && (
-            <DownloadProgressToast
-              message={downloadProgress.status === 'Completed' ? t('instance:assetsDownloaded') : t('instance:downloadingAssetsShort')}
-              percentage={downloadProgress.percentage}
-              onClose={() => setDownloadProgress(null)}
-            />
-          )}
-          {updateDownloadProgress !== null && updateDownloadVersion && (
-            <DownloadProgressToast
-              message={t('updater:newUpdateDownloading')}
-              percentage={updateDownloadProgress}
-              onClose={() => {
-                setUpdateDownloadProgress(null);
-                setUpdateDownloadVersion(null);
-              }}
-            />
-          )}
-          {updateReadyVersion && (
-            <UpdateReadyToast
-              message={t('updater:newUpdateReady')}
-              version={updateReadyVersion}
-              onClose={() => setUpdateReadyVersion(null)}
-              onClick={() => {
-                setScrollToUpdates(true);
-                setSettingsOpen(true);
-                setSelectedInstance(null);
-                setSkinViewOpen(false);
-              }}
-            />
-          )}
-        </div>
-      </div>
       <Toaster position="bottom-right" theme="dark" duration={5000} />
 
       {/* Update Dialog */}
