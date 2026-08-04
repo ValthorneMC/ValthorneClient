@@ -46,6 +46,11 @@
     "active": true,
     "targets": "all",
     "createUpdaterArtifacts": true,
+    "macOS": {
+      "entitlements": "entitlements.plist",
+      "signingIdentity": "-",
+      "hardenedRuntime": false
+    },
     "windows": {
       "wix": {
         "language": "en-US"
