@@ -1,9 +1,10 @@
 use log::{Level, LevelFilter, Metadata, Record};
 use std::fs::{File, OpenOptions};
-use std::io::{BufWriter, Write};
+use std::io::{BufReader, BufWriter, Write};
 use std::path::PathBuf;
 use std::sync::Mutex;
 use chrono::Local;
+use flate2::{write::GzEncoder, Compression};
 
 pub struct Logger {
     file: Mutex<BufWriter<File>>,
@@ -57,25 +58,31 @@ impl Logger {
             }
         }
         
-        // Keep only the last 7 days of logs
+        // Keep only the last 7 days of logs uncompressed
         log_files.sort_by(|a, b| b.cmp(a));
-        
-        for (index, log_file) in log_files.iter().enumerate() {
-            if index >= 7 {
-                // Compress old logs
-                let compressed_name = log_file.with_extension("log.gz");
-                
-                // Simple compression using gzip (if available)
-                if let Ok(_file) = std::fs::File::open(log_file) {
-                    if let Ok(_compressed) = std::fs::File::create(&compressed_name) {
-                        // For now, just rename the file
-                        // In a real implementation, you'd use a compression library
-                        std::fs::rename(log_file, &compressed_name)?;
-                    }
-                }
+
+        for log_file in log_files.iter().skip(7) {
+            if let Err(e) = Self::gzip_file(log_file) {
+                log::warn!("Failed to compress log {:?}: {}", log_file, e);
             }
         }
-        
+
+        Ok(())
+    }
+
+    /// Gzip-compresses a log file in place and removes the original.
+    fn gzip_file(path: &PathBuf) -> Result<(), Box<dyn std::error::Error>> {
+        let compressed_path = path.with_extension("log.gz");
+
+        {
+            let mut input = BufReader::new(File::open(path)?);
+            let output = File::create(&compressed_path)?;
+            let mut encoder = GzEncoder::new(output, Compression::default());
+            std::io::copy(&mut input, &mut encoder)?;
+            encoder.finish()?;
+        }
+
+        std::fs::remove_file(path)?;
         Ok(())
     }
 }
