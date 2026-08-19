@@ -152,22 +152,24 @@ const LaunchButton: React.FC<LaunchButtonProps> = ({
 	const handleStop = async (e: React.MouseEvent) => {
 		e.stopPropagation();
 		e.preventDefault();
+
+		const cached = launchStateCache.get(instanceId);
+		launchStateCache.delete(instanceId);
+		setState('idle');
+		setPlayTime(0);
+
+		if (cached && cached.state === 'playing') {
+			const elapsed = Math.floor((Date.now() - cached.startTime) / 1000);
+			const hours = elapsed / 3600;
+			const saved = localStorage.getItem(`playtime_${instanceId}`);
+			const previousHours = saved ? parseFloat(saved) || 0 : 0;
+			const totalHours = previousHours + hours;
+			localStorage.setItem(`playtime_${instanceId}`, totalHours.toString());
+			window.dispatchEvent(new CustomEvent('playtime_updated', { detail: { instanceId } }));
+		}
+
 		try {
-			const cached = launchStateCache.get(instanceId);
-			if (cached && cached.state === 'playing') {
-				const elapsed = Math.floor((Date.now() - cached.startTime) / 1000);
-				const hours = elapsed / 3600;
-				const saved = localStorage.getItem(`playtime_${instanceId}`);
-				const previousHours = saved ? parseFloat(saved) || 0 : 0;
-				const totalHours = previousHours + hours;
-				localStorage.setItem(`playtime_${instanceId}`, totalHours.toString());
-				window.dispatchEvent(new CustomEvent('playtime_updated', { detail: { instanceId } }));
-			}
-			
 			await invoke('stop_minecraft_instance', { instanceId: instanceId });
-			setState('idle');
-			setPlayTime(0);
-			launchStateCache.delete(instanceId);
 		} catch (error) {
 			void logger.error('Error stopping Minecraft', error, 'LaunchButton');
 		}
