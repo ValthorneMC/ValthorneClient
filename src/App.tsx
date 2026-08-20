@@ -713,25 +713,22 @@ function App() {
       }
     })();
 
-    if (accounts.length === 0 && !isLoginVisible) {
-      const timer = setTimeout(() => {
-        setIsLoginVisible(true);
-      }, 100);
-      return () => {
-        clearTimeout(timer);
-        clearInterval(updateCheckInterval);
-        if (unlistenUpdateStart) unlistenUpdateStart();
-        if (unlistenUpdateProgress) unlistenUpdateProgress();
-        if (unlistenUpdateComplete) unlistenUpdateComplete();
-      };
-    }
-    
     return () => {
       clearInterval(updateCheckInterval);
       if (unlistenUpdateStart) unlistenUpdateStart();
       if (unlistenUpdateProgress) unlistenUpdateProgress();
       if (unlistenUpdateComplete) unlistenUpdateComplete();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (accounts.length === 0 && !isLoginVisible) {
+      const timer = setTimeout(() => {
+        setIsLoginVisible(true);
+      }, 100);
+      return () => clearTimeout(timer);
+    }
   }, [accounts.length, isLoginVisible]);
 
   // Update Discord presence when the view changes
@@ -913,7 +910,7 @@ function App() {
   };
 
 
-  const loadDistribution = async () => {
+  const loadDistribution = async (retryCount = 0) => {
     if (distributionLoaded) return;
     try {
       const manifest = await invoke<DistributionManifest>('load_distribution_manifest', {
@@ -924,7 +921,11 @@ function App() {
 
       addToast(t('instance:distributionLoaded'), 'success');
     } catch (error) {
-      addToast(t('instance:distributionFailed'), 'error');
+      if (retryCount === 0) {
+        addToast(t('instance:distributionFailed'), 'error');
+      }
+      const delay = Math.min(5000 * (retryCount + 1), 30000);
+      setTimeout(() => loadDistribution(retryCount + 1), delay);
     }
   };
 

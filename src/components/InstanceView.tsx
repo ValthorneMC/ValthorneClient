@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { invoke } from '@tauri-apps/api/core';
 import LaunchButton from './LaunchButton';
@@ -58,6 +58,24 @@ const InstanceView: React.FC<InstanceViewProps> = ({
   const [localVideoPath, setLocalVideoPath] = useState<string | null>(null);
   const [videoLoaded, setVideoLoaded] = useState(false);
   const [showTitle, setShowTitle] = useState(true);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+
+  // Pause the background video while the window isn't visible (minimized/backgrounded)
+  // so it doesn't keep decoding frames for nothing.
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      const video = videoRef.current;
+      if (!video) return;
+      if (document.hidden) {
+        video.pause();
+      } else if (localVideoPath) {
+        video.play().catch(() => {});
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [localVideoPath]);
 
   const instance = distribution.instances.find(inst => inst.id === instanceId);
 
@@ -145,6 +163,7 @@ const InstanceView: React.FC<InstanceViewProps> = ({
         {localVideoPath ? (
           <video
             key={localVideoPath}
+            ref={videoRef}
             autoPlay
             loop
             muted

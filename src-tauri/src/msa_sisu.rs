@@ -13,8 +13,8 @@ use base64::engine::general_purpose::{STANDARD as BASE64_STANDARD, URL_SAFE_NO_P
 use chrono::{DateTime, TimeZone, Utc};
 use p256::ecdsa::signature::Signer;
 use p256::ecdsa::{Signature, SigningKey, VerifyingKey};
+use p256::elliptic_curve::Generate;
 use p256::pkcs8::{DecodePrivateKey, EncodePrivateKey, LineEnding};
-use rand::rngs::OsRng;
 use reqwest::header::HeaderMap;
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
@@ -203,9 +203,9 @@ fn persist_device_token(
 }
 
 fn generate_key() -> Result<DeviceTokenKey, String> {
-    let signing_key = SigningKey::random(&mut OsRng);
+    let signing_key = SigningKey::generate();
     let public_key = VerifyingKey::from(&signing_key);
-    let encoded_point = public_key.to_encoded_point(false);
+    let encoded_point = public_key.to_sec1_point(false);
 
     Ok(DeviceTokenKey {
         id: Uuid::new_v4(),
