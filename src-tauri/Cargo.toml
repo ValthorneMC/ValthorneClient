@@ -47,7 +47,7 @@ tauri-plugin-notification = "2.0"
 tauri-plugin-global-shortcut = "2.0"
 tauri-plugin-os = "2.0"
 rusqlite = { version = "0.32", features = ["bundled"] }
-rand = "0.8"
+rand = "0.10"
 glob = "0.3"
 dunce = "1.0"
 urlencoding = "2.1"
