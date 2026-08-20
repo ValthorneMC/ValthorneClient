@@ -55,7 +55,7 @@ once_cell = "1.19"
 discord-rich-presence = "0.2"
 png = "=0.17.16"
 p256 = { version = "0.13", features = ["ecdsa", "pkcs8", "pem", "std"] }
-base64 = "0.22"
+base64 = "0.23"
 uuid = { version = "1", features = ["v4"] }
 semver = "1"
 
