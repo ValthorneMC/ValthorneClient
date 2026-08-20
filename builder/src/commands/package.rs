@@ -377,7 +377,7 @@ async fn create_distribution_zip_async(source_dir: &Path, zip_path: &Path) -> Re
 
     let file = File::create(zip_path)?;
     let mut zip = ZipWriter::new(file);
-    let options = FileOptions::default()
+    let options = FileOptions::<()>::default()
         .compression_method(zip::CompressionMethod::Deflated)
         .unix_permissions(0o755);
 
