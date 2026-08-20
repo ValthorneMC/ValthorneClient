@@ -4,6 +4,7 @@ use std::io::Write;
 use reqwest;
 use tauri::{AppHandle, State};
 use tauri::Emitter;
+use tauri::Manager;
 use crate::UpdateState;
 use crate::models::{LauncherConfig, RamConfig, AdvancedConfig, UpdateInstallOutcome};
 use crate::DistributionManifest;
@@ -1476,8 +1477,6 @@ pub async fn clear_frontend_logs() -> Result<(), String> {
 #[cfg(debug_assertions)]
 #[tauri::command]
 pub async fn toggle_devtools(app_handle: tauri::AppHandle) -> Result<(), String> {
-    use tauri::Manager;
-
     let window = app_handle.get_webview_window("main")
         .ok_or_else(|| "Main window not found".to_string())?;
 
