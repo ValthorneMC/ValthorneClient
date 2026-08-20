@@ -36,7 +36,7 @@ sha2 = "0.10"
 md5 = "0.7"
 walkdir = "2.5"
 num_cpus = "1.16"
-sysinfo = "0.30"
+sysinfo = "0.39"
 dirs = "5.0"
 chrono = { version = "0.4", features = ["serde"] }
 dotenv = "0.15"
