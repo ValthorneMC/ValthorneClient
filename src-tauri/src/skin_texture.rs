@@ -33,7 +33,9 @@ pub fn normalize_skin_texture(data: &[u8]) -> Result<Vec<u8>, String> {
     let is_legacy = height == 32;
     let color_type = info.color_type;
 
-    let output_buffer_size = reader.output_buffer_size();
+    let output_buffer_size = reader
+        .output_buffer_size()
+        .ok_or_else(|| "error.skin.not_png".to_string())?;
     let mut raw_buf = vec![0u8; output_buffer_size];
     reader
         .next_frame(&mut raw_buf)
@@ -82,7 +84,7 @@ pub fn normalize_skin_texture(data: &[u8]) -> Result<Vec<u8>, String> {
         let mut encoder = png::Encoder::new(&mut encoded, 64, 64);
         encoder.set_color(png::ColorType::Rgba);
         encoder.set_depth(png::BitDepth::Eight);
-        encoder.set_filter(png::FilterType::NoFilter);
+        encoder.set_filter(png::Filter::NoFilter);
         encoder.set_compression(png::Compression::Fast);
         let mut writer = encoder
             .write_header()
