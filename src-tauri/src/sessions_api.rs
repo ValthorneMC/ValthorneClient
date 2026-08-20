@@ -20,7 +20,7 @@ pub async fn save_session(
             .unwrap_or_else(|| "invalid".to_string()), 
         expires_at
     );
-    session_manager.save_session(&session)
+    session_manager.save_session(&session).await
         .map_err(|e| {
             log::error!("Failed to save session: {}", e);
             format!("Failed to save session: {}", e)
@@ -33,7 +33,7 @@ pub async fn save_session(
 pub async fn get_session(app_handle: tauri::AppHandle, username: String) -> Result<Option<crate::sessions::Session>, String> {
     let session_manager = crate::sessions::SessionManager::new(&app_handle)
         .map_err(|e| format!("Failed to initialize session manager: {}", e))?;
-    let session = session_manager.get_session(&username)
+    let session = session_manager.get_session(&username).await
         .map_err(|e| format!("Failed to get session: {}", e))?;
     Ok(session)
 }
@@ -42,9 +42,9 @@ pub async fn get_session(app_handle: tauri::AppHandle, username: String) -> Resu
 pub async fn get_active_session(app_handle: tauri::AppHandle) -> Result<Option<crate::sessions::Session>, String> {
     let session_manager = crate::sessions::SessionManager::new(&app_handle)
         .map_err(|e| format!("Failed to initialize session manager: {}", e))?;
-    if let Some(s) = session_manager.get_active_session()
+    if let Some(s) = session_manager.get_active_session().await
         .map_err(|e| format!("Failed to get active session: {}", e))? { return Ok(Some(s)); }
-    let all = session_manager.get_all_sessions().map_err(|e| e.to_string())?;
+    let all = session_manager.get_all_sessions().await.map_err(|e| e.to_string())?;
     if let Some(cand) = all.into_iter().find(|s| s.refresh_token.is_some()) {
         if let Ok(crate::EnsureSessionResponse::Ok { session, .. }) = super::validate_and_refresh_token(app_handle.clone(), cand.username.clone()).await {
             return Ok(Some(session));
@@ -60,7 +60,7 @@ pub async fn update_session(
 ) -> Result<String, String> {
     let session_manager = crate::sessions::SessionManager::new(&app_handle)
         .map_err(|e| format!("Failed to initialize session manager: {}", e))?;
-    session_manager.update_session(&session)
+    session_manager.update_session(&session).await
         .map_err(|e| format!("Failed to update session: {}", e))?;
     log::info!("Session updated for user: {}", session.username);
     Ok("Session updated successfully".to_string())
@@ -70,7 +70,7 @@ pub async fn update_session(
 pub async fn delete_session(app_handle: tauri::AppHandle, username: String) -> Result<String, String> {
     let session_manager = crate::sessions::SessionManager::new(&app_handle)
         .map_err(|e| format!("Failed to initialize session manager: {}", e))?;
-    session_manager.delete_session(&username)
+    session_manager.delete_session(&username).await
         .map_err(|e| format!("Failed to delete session: {}", e))?;
     log::info!("Session deleted for user: {}", username);
     Ok("Session deleted successfully".to_string())
@@ -80,7 +80,7 @@ pub async fn delete_session(app_handle: tauri::AppHandle, username: String) -> R
 pub async fn clear_all_sessions(app_handle: tauri::AppHandle) -> Result<String, String> {
     let session_manager = crate::sessions::SessionManager::new(&app_handle)
         .map_err(|e| format!("Failed to initialize session manager: {}", e))?;
-    session_manager.clear_all_sessions()
+    session_manager.clear_all_sessions().await
         .map_err(|e| format!("Failed to clear sessions: {}", e))?;
     log::info!("All sessions cleared");
     Ok("All sessions cleared successfully".to_string())
@@ -90,7 +90,7 @@ pub async fn clear_all_sessions(app_handle: tauri::AppHandle) -> Result<String, 
 pub async fn cleanup_expired_sessions(app_handle: tauri::AppHandle) -> Result<usize, String> {
     let session_manager = crate::sessions::SessionManager::new(&app_handle)
         .map_err(|e| format!("Failed to initialize session manager: {}", e))?;
-    let cleaned = session_manager.cleanup_expired_sessions()
+    let cleaned = session_manager.cleanup_expired_sessions().await
         .map_err(|e| format!("Failed to cleanup sessions: {}", e))?;
     log::info!("Cleaned up {} expired sessions", cleaned);
     Ok(cleaned)
@@ -101,7 +101,7 @@ pub async fn debug_sessions(app_handle: tauri::AppHandle) -> Result<String, Stri
     let session_manager = crate::sessions::SessionManager::new(&app_handle)
         .map_err(|e| format!("Failed to initialize session manager: {}", e))?;
     let db_path = session_manager.db_path.clone();
-    let sessions = session_manager.get_all_sessions()
+    let sessions = session_manager.get_all_sessions().await
         .map_err(|e| format!("Failed to get sessions: {}", e))?;
     let result = format!(
         "Session Database Debug:\n\
@@ -133,7 +133,7 @@ pub async fn get_db_path(app_handle: tauri::AppHandle) -> Result<String, String>
 pub async fn refresh_session(app_handle: tauri::AppHandle, username: String) -> Result<crate::sessions::Session, String> {
     let session_manager = crate::sessions::SessionManager::new(&app_handle)
         .map_err(|e| format!("Failed to initialize session manager: {}", e))?;
-    let existing = session_manager.get_session(&username)
+    let existing = session_manager.get_session(&username).await
         .map_err(|e| format!("Failed to get session: {}", e))?;
     let Some(existing_session) = existing else { return Err("No existing session".to_string()); };
     let Some(refresh_token) = existing_session.refresh_token.clone() else { return Err("No refresh token stored".to_string()); };
@@ -148,7 +148,7 @@ pub async fn refresh_session(app_handle: tauri::AppHandle, username: String) -> 
     updated.refresh_token = Some(result.refresh_token.clone());
     updated.expires_at = new_expires_at;
     updated.updated_at = chrono::Utc::now().timestamp();
-    session_manager.update_session(&updated)
+    session_manager.update_session(&updated).await
         .map_err(|e| format!("Failed to update session: {}", e))?;
     Ok(updated)
 }
@@ -157,7 +157,7 @@ pub async fn refresh_session(app_handle: tauri::AppHandle, username: String) -> 
 pub async fn validate_and_refresh_token(app_handle: tauri::AppHandle, username: String) -> Result<crate::EnsureSessionResponse, String> {
     let session_manager = crate::sessions::SessionManager::new(&app_handle)
         .map_err(|e| format!("Failed to initialize session manager: {}", e))?;
-    let existing = session_manager.get_session(&username)
+    let existing = session_manager.get_session(&username).await
         .map_err(|e| format!("Failed to get session: {}", e))?;
     let Some(mut session) = existing else {
         return Ok(crate::EnsureSessionResponse::Err { code: "NO_SESSION".into(), message: "No existing session".into() });
@@ -165,7 +165,7 @@ pub async fn validate_and_refresh_token(app_handle: tauri::AppHandle, username: 
     match validate_access_token_local(&session.access_token).await {
         Ok(true) => {
             session.updated_at = Utc::now().timestamp();
-            session_manager.update_session(&session)
+            session_manager.update_session(&session).await
                 .map_err(|e| format!("Failed to update session: {}", e))?;
             return Ok(crate::EnsureSessionResponse::Ok { session, refreshed: false });
         },
@@ -182,7 +182,7 @@ pub async fn validate_and_refresh_token(app_handle: tauri::AppHandle, username: 
                     session.refresh_token = Some(result.refresh_token);
                     session.expires_at = (Utc::now() + chrono::Duration::days(90)).timestamp();
                     session.updated_at = Utc::now().timestamp();
-                    session_manager.update_session(&session)
+                    session_manager.update_session(&session).await
                         .map_err(|e| format!("Failed to update session: {}", e))?;
                     return Ok(crate::EnsureSessionResponse::Ok { session, refreshed: true });
                 },
