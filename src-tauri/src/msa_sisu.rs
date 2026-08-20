@@ -554,8 +554,8 @@ async fn send_signed_request<T: DeserializeOwned>(
 }
 
 fn generate_oauth_challenge() -> String {
-    use rand::Rng;
-    let mut rng = rand::thread_rng();
-    let bytes: Vec<u8> = (0..64).map(|_| rng.r#gen::<u8>()).collect();
+    use rand::RngExt;
+    let mut rng = rand::rng();
+    let bytes: Vec<u8> = (0..64).map(|_| rng.random::<u8>()).collect();
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
