@@ -225,6 +225,20 @@ pub fn finalize_extracted_java(
     Ok(())
 }
 
+/// Rejects anything that isn't a bare file name (path separators, `..`, empty).
+pub fn sanitize_filename_component(name: &str) -> Result<&str, String> {
+    if name.is_empty()
+        || name == "."
+        || name == ".."
+        || name.contains('/')
+        || name.contains('\\')
+        || name.contains('\0')
+    {
+        return Err(format!("Invalid file name: {}", name));
+    }
+    Ok(name)
+}
+
 /// Checks whether a file matches any of the given glob patterns
 pub fn matches_glob_patterns(file_path: &str, patterns: &[String]) -> bool {
     for pattern_str in patterns {

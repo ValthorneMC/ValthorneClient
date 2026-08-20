@@ -346,6 +346,7 @@ pub async fn remove_active_cape(access_token: String) -> Result<String, String> 
 pub async fn create_temp_file(file_name: String, file_data: Vec<u8>) -> Result<String, String> {
 use std::fs::File;
     use std::io::Write;
+    crate::utils::sanitize_filename_component(&file_name)?;
     let temp_dir = std::env::temp_dir();
     let file_path = temp_dir.join(&file_name);
     let mut file = File::create(&file_path).map_err(|e| format!("Failed to create temp file: {}", e))?;
@@ -363,6 +364,7 @@ fn get_skins_directory() -> std::path::PathBuf {
 
 #[tauri::command]
 pub async fn save_skin_file(skin_id: String, file_data: Vec<u8>) -> Result<String, String> {
+    crate::utils::sanitize_filename_component(&skin_id)?;
     let skins_dir = get_skins_directory();
     fs::create_dir_all(&skins_dir).await
         .map_err(|e| format!("Failed to create skins directory: {}", e))?;
@@ -376,6 +378,7 @@ pub async fn save_skin_file(skin_id: String, file_data: Vec<u8>) -> Result<Strin
 
 #[tauri::command]
 pub async fn load_skin_file(skin_id: String) -> Result<Vec<u8>, String> {
+    crate::utils::sanitize_filename_component(&skin_id)?;
     let skins_dir = get_skins_directory();
     let file_path = skins_dir.join(format!("{}.png", skin_id));
     
@@ -391,6 +394,7 @@ pub async fn load_skin_file(skin_id: String) -> Result<Vec<u8>, String> {
 
 #[tauri::command]
 pub async fn delete_skin_file(skin_id: String) -> Result<String, String> {
+    crate::utils::sanitize_filename_component(&skin_id)?;
     let skins_dir = get_skins_directory();
     let file_path = skins_dir.join(format!("{}.png", skin_id));
     
@@ -786,7 +790,6 @@ pub async fn download_instance_assets(
     app_handle: AppHandle,
     state: State<'_, Arc<Mutex<bool>>>
 ) -> Result<String, String> {
-    // Set download state
     if let Ok(mut downloading) = state.lock() {
         *downloading = true;
     }
@@ -887,12 +890,16 @@ pub async fn download_instance_assets(
         // Prepare list of files to download in parallel
         let mut mods_to_download: Vec<(String, std::path::PathBuf)> = Vec::new();
         for mod_file in &instance.files.mods {
+            if crate::utils::sanitize_filename_component(&mod_file.name).is_err() {
+                log::warn!("Skipping mod with unsafe name: {}", mod_file.name);
+                continue;
+            }
             expected_mods.insert(mod_file.name.clone());
             let should_ignore = crate::utils::matches_glob_patterns(&mod_file.name, ignored_mods);
-            let file_url = if mod_file.url.starts_with("http") { 
-                mod_file.url.clone() 
-            } else { 
-                format!("{}/{}", base.trim_end_matches('/'), mod_file.url.trim_start_matches('/')) 
+            let file_url = if mod_file.url.starts_with("http") {
+                mod_file.url.clone()
+            } else {
+                format!("{}/{}", base.trim_end_matches('/'), mod_file.url.trim_start_matches('/'))
             };
             let target_path = mods_dir.join(&mod_file.name);
             
@@ -1182,8 +1189,7 @@ pub async fn download_instance_assets(
         "status": "Completed"
     }));
     let _ = app_handle.emit("asset-download-completed", serde_json::json!({ "phase": "complete" }));
-    
-    // Clear download state
+
     if let Ok(mut downloading) = state.lock() {
         *downloading = false;
     }
