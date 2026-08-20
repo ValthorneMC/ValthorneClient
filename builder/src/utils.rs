@@ -10,7 +10,7 @@ pub async fn calculate_file_hash(path: &Path) -> Result<String> {
     let mut hasher = Sha256::new();
     hasher.update(&contents);
     let hash = hasher.finalize();
-    Ok(format!("{:x}", hash))
+    Ok(hash.iter().map(|b| format!("{:02x}", b)).collect())
 }
 
 pub async fn calculate_file_md5(path: &Path) -> Result<String> {

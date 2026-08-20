@@ -130,7 +130,7 @@ pub fn verify_file_checksum(file_path: &Path, expected_sha256: &str) -> Result<(
 
     let mut hasher = Sha256::new();
     hasher.update(&content);
-    let actual_sha256 = format!("{:x}", hasher.finalize());
+    let actual_sha256: String = hasher.finalize().iter().map(|b| format!("{:02x}", b)).collect();
 
     if actual_sha256 != expected_sha256 {
         return Err(format!(

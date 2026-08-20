@@ -1,11 +1,13 @@
 use chrono::Utc;
 use log::{info, warn, error};
-use rusqlite::{params, Connection, Result as SqlResult};
 use serde::{Deserialize, Serialize};
+use sqlx::sqlite::{SqliteConnectOptions, SqliteConnection};
+use sqlx::Connection;
 use std::path::PathBuf;
+use std::str::FromStr;
 use tauri::{AppHandle, Manager};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct Session {
     pub id: String,
     pub username: String,
@@ -40,7 +42,7 @@ impl Session {
 
 /// Persisted Xbox Live device identity: an ECDSA P-256 key pair and the device token
 /// issued for it, used to sign every SISU authentication request.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, sqlx::FromRow)]
 pub struct DeviceTokenRecord {
     pub device_uuid: String,
     pub private_key_pem: String,
@@ -58,25 +60,27 @@ pub struct SessionManager {
 }
 
 impl SessionManager {
-    pub fn new(app_handle: &AppHandle) -> SqlResult<Self> {
-        let app_dir = app_handle.path().app_data_dir()
-            .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
+    pub fn new(app_handle: &AppHandle) -> Result<Self, String> {
+        let app_dir = app_handle.path().app_data_dir().map_err(|e| e.to_string())?;
 
-        std::fs::create_dir_all(&app_dir)
-            .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
+        std::fs::create_dir_all(&app_dir).map_err(|e| e.to_string())?;
 
         let db_path = app_dir.join("sessions.db");
 
-        let manager = Self { db_path };
-        manager.init_db()?;
-
-        Ok(manager)
+        Ok(Self { db_path })
     }
 
-    fn init_db(&self) -> SqlResult<()> {
-        let conn = Connection::open(&self.db_path)?;
+async fn connect(&self) -> Result<SqliteConnection, String> {
+        let options = SqliteConnectOptions::from_str(&self.db_path.to_string_lossy())
+            .map_err(|e| e.to_string())?
+            .create_if_missing(true);
+        let mut conn = SqliteConnection::connect_with(&options).await.map_err(|e| e.to_string())?;
+        self.ensure_schema(&mut conn).await?;
+        Ok(conn)
+    }
 
-        conn.execute(
+    async fn ensure_schema(&self, conn: &mut SqliteConnection) -> Result<(), String> {
+        sqlx::query(
             "CREATE TABLE IF NOT EXISTS sessions (
                 id TEXT PRIMARY KEY,
                 username TEXT NOT NULL,
@@ -88,43 +92,42 @@ impl SessionManager {
                 updated_at INTEGER NOT NULL,
                 is_active INTEGER NOT NULL DEFAULT 1
             )",
-            [],
-        )?;
+        )
+        .execute(&mut *conn)
+        .await
+        .map_err(|e| e.to_string())?;
 
         // Create index for faster lookups by username
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_sessions_username ON sessions(username)",
-            [],
-        )?;
+        sqlx::query("CREATE INDEX IF NOT EXISTS idx_sessions_username ON sessions(username)")
+            .execute(&mut *conn)
+            .await
+            .map_err(|e| e.to_string())?;
 
         // Ensure unique username to avoid duplicates
-        let _ = conn.execute(
-            "CREATE UNIQUE INDEX IF NOT EXISTS uniq_sessions_username ON sessions(username)",
-            [],
-        );
+        let _ = sqlx::query("CREATE UNIQUE INDEX IF NOT EXISTS uniq_sessions_username ON sessions(username)")
+            .execute(&mut *conn)
+            .await;
 
         // Try to add is_active column in case of older schema (ignore error if exists)
-        let _ = conn.execute(
-            "ALTER TABLE sessions ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1",
-            [],
-        );
-        
+        let _ = sqlx::query("ALTER TABLE sessions ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1")
+            .execute(&mut *conn)
+            .await;
+
         // Try to add uuid column in case of older schema (ignore error if exists)
-        let _ = conn.execute(
-            "ALTER TABLE sessions ADD COLUMN uuid TEXT NOT NULL DEFAULT ''",
-            [],
-        );
+        let _ = sqlx::query("ALTER TABLE sessions ADD COLUMN uuid TEXT NOT NULL DEFAULT ''")
+            .execute(&mut *conn)
+            .await;
 
         // Create index for expiration checks
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at)",
-            [],
-        )?;
+        sqlx::query("CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at)")
+            .execute(&mut *conn)
+            .await
+            .map_err(|e| e.to_string())?;
 
         // Single-row table holding the Xbox Live device identity (ECDSA key pair + device
         // token) used to sign SISU authentication requests. Kept stable across logins so we
         // don't re-register a new device with Xbox Live every time the user signs in.
-        conn.execute(
+        sqlx::query(
             "CREATE TABLE IF NOT EXISTS msa_device_tokens (
                 id INTEGER PRIMARY KEY CHECK (id = 0),
                 device_uuid TEXT NOT NULL,
@@ -136,47 +139,33 @@ impl SessionManager {
                 token TEXT NOT NULL,
                 display_claims TEXT NOT NULL
             )",
-            [],
-        )?;
+        )
+        .execute(&mut *conn)
+        .await
+        .map_err(|e| e.to_string())?;
 
         info!("Sessions database initialized at: {:?}", self.db_path);
         Ok(())
     }
 
-    pub fn get_device_token(&self) -> SqlResult<Option<DeviceTokenRecord>> {
-        let conn = Connection::open(&self.db_path)?;
+    pub async fn get_device_token(&self) -> Result<Option<DeviceTokenRecord>, String> {
+        let mut conn = self.connect().await?;
 
-        let result = conn.query_row(
+        sqlx::query_as::<_, DeviceTokenRecord>(
             "SELECT device_uuid, private_key_pem, x, y, issue_instant, not_after, token, display_claims
              FROM msa_device_tokens WHERE id = 0",
-            [],
-            |row| {
-                Ok(DeviceTokenRecord {
-                    device_uuid: row.get(0)?,
-                    private_key_pem: row.get(1)?,
-                    x: row.get(2)?,
-                    y: row.get(3)?,
-                    issue_instant: row.get(4)?,
-                    not_after: row.get(5)?,
-                    token: row.get(6)?,
-                    display_claims: row.get(7)?,
-                })
-            },
-        );
-
-        match result {
-            Ok(record) => Ok(Some(record)),
-            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
-            Err(e) => Err(e),
-        }
+        )
+        .fetch_optional(&mut conn)
+        .await
+        .map_err(|e| e.to_string())
     }
 
-    pub fn save_device_token(&self, record: &DeviceTokenRecord) -> SqlResult<()> {
-        let conn = Connection::open(&self.db_path)?;
+    pub async fn save_device_token(&self, record: &DeviceTokenRecord) -> Result<(), String> {
+        let mut conn = self.connect().await?;
 
-        conn.execute(
+        sqlx::query(
             "INSERT INTO msa_device_tokens (id, device_uuid, private_key_pem, x, y, issue_instant, not_after, token, display_claims)
-             VALUES (0, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+             VALUES (0, ?, ?, ?, ?, ?, ?, ?, ?)
              ON CONFLICT(id) DO UPDATE SET
                device_uuid=excluded.device_uuid,
                private_key_pem=excluded.private_key_pem,
@@ -186,76 +175,69 @@ impl SessionManager {
                not_after=excluded.not_after,
                token=excluded.token,
                display_claims=excluded.display_claims",
-            params![
-                record.device_uuid,
-                record.private_key_pem,
-                record.x,
-                record.y,
-                record.issue_instant,
-                record.not_after,
-                record.token,
-                record.display_claims,
-            ],
-        )?;
+        )
+        .bind(&record.device_uuid)
+        .bind(&record.private_key_pem)
+        .bind(&record.x)
+        .bind(&record.y)
+        .bind(record.issue_instant)
+        .bind(record.not_after)
+        .bind(&record.token)
+        .bind(&record.display_claims)
+        .execute(&mut conn)
+        .await
+        .map_err(|e| e.to_string())?;
 
         Ok(())
     }
 
-    pub fn save_session(&self, session: &Session) -> SqlResult<()> {
-        let conn = Connection::open(&self.db_path)?;
+    pub async fn save_session(&self, session: &Session) -> Result<(), String> {
+        let mut conn = self.connect().await?;
 
-        conn.execute(
+        sqlx::query(
             "INSERT INTO sessions (id, username, uuid, access_token, refresh_token, expires_at, created_at, updated_at, is_active)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 1)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
              ON CONFLICT(username) DO UPDATE SET
                uuid=excluded.uuid,
                access_token=excluded.access_token,
                refresh_token=excluded.refresh_token,
                expires_at=excluded.expires_at,
                updated_at=excluded.updated_at",
-            params![
-                session.id,
-                session.username,
-                session.uuid,
-                session.access_token,
-                session.refresh_token,
-                session.expires_at,
-                session.created_at,
-                session.updated_at
-            ],
-        )?;
+        )
+        .bind(&session.id)
+        .bind(&session.username)
+        .bind(&session.uuid)
+        .bind(&session.access_token)
+        .bind(&session.refresh_token)
+        .bind(session.expires_at)
+        .bind(session.created_at)
+        .bind(session.updated_at)
+        .execute(&mut conn)
+        .await
+        .map_err(|e| e.to_string())?;
 
         info!("Session saved for user: {}", session.username);
         Ok(())
     }
 
-    pub fn get_session(&self, username: &str) -> SqlResult<Option<Session>> {
-        let conn = Connection::open(&self.db_path)?;
+    pub async fn get_session(&self, username: &str) -> Result<Option<Session>, String> {
+        let mut conn = self.connect().await?;
 
-        let mut stmt = conn.prepare(
+        let result = sqlx::query_as::<_, Session>(
             "SELECT id, username, uuid, access_token, refresh_token, expires_at, created_at, updated_at
-             FROM sessions WHERE username = ?1"
-        )?;
-
-        let result = stmt.query_row(params![username], |row| {
-            Ok(Session {
-                id: row.get(0)?,
-                username: row.get(1)?,
-                uuid: row.get(2)?,
-                access_token: row.get(3)?,
-                refresh_token: row.get(4)?,
-                expires_at: row.get(5)?,
-                created_at: row.get(6)?,
-                updated_at: row.get(7)?,
-            })
-        });
+             FROM sessions WHERE username = ?",
+        )
+        .bind(username)
+        .fetch_optional(&mut conn)
+        .await
+        .map_err(|e| e.to_string());
 
         match result {
-            Ok(session) => {
+            Ok(Some(session)) => {
                 info!("Session retrieved for user: {}", username);
                 Ok(Some(session))
             }
-            Err(rusqlite::Error::QueryReturnedNoRows) => {
+            Ok(None) => {
                 warn!("No session found for user: {}", username);
                 Ok(None)
             }
@@ -266,64 +248,51 @@ impl SessionManager {
         }
     }
 
-    pub fn get_all_sessions(&self) -> SqlResult<Vec<Session>> {
-        let conn = Connection::open(&self.db_path)?;
+    pub async fn get_all_sessions(&self) -> Result<Vec<Session>, String> {
+        let mut conn = self.connect().await?;
 
-        let mut stmt = conn.prepare(
+        let sessions = sqlx::query_as::<_, Session>(
             "SELECT id, username, uuid, access_token, refresh_token, expires_at, created_at, updated_at
-             FROM sessions ORDER BY updated_at DESC"
-        )?;
+             FROM sessions ORDER BY updated_at DESC",
+        )
+        .fetch_all(&mut conn)
+        .await
+        .map_err(|e| e.to_string())?;
 
-        let sessions = stmt.query_map([], |row| {
-            Ok(Session {
-                id: row.get(0)?,
-                username: row.get(1)?,
-                uuid: row.get(2)?,
-                access_token: row.get(3)?,
-                refresh_token: row.get(4)?,
-                expires_at: row.get(5)?,
-                created_at: row.get(6)?,
-                updated_at: row.get(7)?,
-            })
-        })?;
-
-        let mut result = Vec::new();
-        for session in sessions {
-            result.push(session?);
-        }
-
-        info!("Retrieved {} sessions", result.len());
-        Ok(result)
+        info!("Retrieved {} sessions", sessions.len());
+        Ok(sessions)
     }
 
-    pub fn update_session(&self, session: &Session) -> SqlResult<()> {
-        let conn = Connection::open(&self.db_path)?;
+    pub async fn update_session(&self, session: &Session) -> Result<(), String> {
+        let mut conn = self.connect().await?;
 
-        conn.execute(
-            "UPDATE sessions SET access_token = ?1, refresh_token = ?2, expires_at = ?3, updated_at = ?4
-             WHERE username = ?5",
-            params![
-                session.access_token,
-                session.refresh_token,
-                session.expires_at,
-                session.updated_at,
-                session.username
-            ],
-        )?;
+        sqlx::query(
+            "UPDATE sessions SET access_token = ?, refresh_token = ?, expires_at = ?, updated_at = ?
+             WHERE username = ?",
+        )
+        .bind(&session.access_token)
+        .bind(&session.refresh_token)
+        .bind(session.expires_at)
+        .bind(session.updated_at)
+        .bind(&session.username)
+        .execute(&mut conn)
+        .await
+        .map_err(|e| e.to_string())?;
 
         info!("Session updated for user: {}", session.username);
         Ok(())
     }
 
-    pub fn delete_session(&self, username: &str) -> SqlResult<()> {
-        let conn = Connection::open(&self.db_path)?;
+    pub async fn delete_session(&self, username: &str) -> Result<(), String> {
+        let mut conn = self.connect().await?;
 
-        let deleted = conn.execute(
-            "DELETE FROM sessions WHERE username = ?1",
-            params![username],
-        )?;
+        let result = sqlx::query("DELETE FROM sessions WHERE username = ?")
+            .bind(username)
+            .execute(&mut conn)
+            .await
+            .map_err(|e| e.to_string())?;
 
-        if deleted > 0 {
+        if result.rows_affected() > 0 {
             info!("Session deleted for user: {}", username);
         } else {
             warn!("No session found to delete for user: {}", username);
@@ -332,24 +301,29 @@ impl SessionManager {
         Ok(())
     }
 
-    pub fn clear_all_sessions(&self) -> SqlResult<()> {
-        let conn = Connection::open(&self.db_path)?;
+    pub async fn clear_all_sessions(&self) -> Result<(), String> {
+        let mut conn = self.connect().await?;
 
-        let deleted = conn.execute("DELETE FROM sessions", [])?;
+        let result = sqlx::query("DELETE FROM sessions")
+            .execute(&mut conn)
+            .await
+            .map_err(|e| e.to_string())?;
 
-        info!("Cleared {} sessions", deleted);
+        info!("Cleared {} sessions", result.rows_affected());
         Ok(())
     }
 
-    pub fn cleanup_expired_sessions(&self) -> SqlResult<usize> {
-        let conn = Connection::open(&self.db_path)?;
+    pub async fn cleanup_expired_sessions(&self) -> Result<usize, String> {
+        let mut conn = self.connect().await?;
 
         let now = Utc::now().timestamp();
-        let deleted = conn.execute(
-            "DELETE FROM sessions WHERE expires_at < ?1",
-            params![now],
-        )?;
+        let result = sqlx::query("DELETE FROM sessions WHERE expires_at < ?")
+            .bind(now)
+            .execute(&mut conn)
+            .await
+            .map_err(|e| e.to_string())?;
 
+        let deleted = result.rows_affected() as usize;
         if deleted > 0 {
             info!("Cleaned up {} expired sessions", deleted);
         }
@@ -357,35 +331,26 @@ impl SessionManager {
         Ok(deleted)
     }
 
-    pub fn get_active_session(&self) -> SqlResult<Option<Session>> {
-        let conn = Connection::open(&self.db_path)?;
+    pub async fn get_active_session(&self) -> Result<Option<Session>, String> {
+        let mut conn = self.connect().await?;
 
         let now = Utc::now().timestamp();
 
-        let mut stmt = conn.prepare(
+        let result = sqlx::query_as::<_, Session>(
             "SELECT id, username, uuid, access_token, refresh_token, expires_at, created_at, updated_at
-             FROM sessions WHERE expires_at > ?1 AND is_active = 1 ORDER BY updated_at DESC LIMIT 1"
-        )?;
-
-        let result = stmt.query_row(params![now], |row| {
-            Ok(Session {
-                id: row.get(0)?,
-                username: row.get(1)?,
-                uuid: row.get(2)?,
-                access_token: row.get(3)?,
-                refresh_token: row.get(4)?,
-                expires_at: row.get(5)?,
-                created_at: row.get(6)?,
-                updated_at: row.get(7)?,
-            })
-        });
+             FROM sessions WHERE expires_at > ? AND is_active = 1 ORDER BY updated_at DESC LIMIT 1",
+        )
+        .bind(now)
+        .fetch_optional(&mut conn)
+        .await
+        .map_err(|e| e.to_string());
 
         match result {
-            Ok(session) => {
+            Ok(Some(session)) => {
                 info!("Active session found for user: {}", session.username);
                 Ok(Some(session))
             }
-            Err(rusqlite::Error::QueryReturnedNoRows) => {
+            Ok(None) => {
                 info!("No active session found");
                 Ok(None)
             }
