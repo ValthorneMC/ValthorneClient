@@ -793,6 +793,23 @@ pub async fn download_instance_assets(
     if let Ok(mut downloading) = state.lock() {
         *downloading = true;
     }
+
+    let result = download_instance_assets_inner(instance_id, minecraft_version, base_url, instance_url, app_handle).await;
+
+    if let Ok(mut downloading) = state.lock() {
+        *downloading = false;
+    }
+
+    result
+}
+
+async fn download_instance_assets_inner(
+    instance_id: String,
+    minecraft_version: String,
+    base_url: Option<String>,
+    instance_url: Option<String>,
+    app_handle: AppHandle,
+) -> Result<String, String> {
     let instance_dir = crate::utils::valthorne_dir().join(&instance_id);
     let _ = tokio::fs::create_dir_all(instance_dir.join("libraries")).await;
     let _ = tokio::fs::create_dir_all(instance_dir.join("mods")).await;
@@ -1189,10 +1206,6 @@ pub async fn download_instance_assets(
         "status": "Completed"
     }));
     let _ = app_handle.emit("asset-download-completed", serde_json::json!({ "phase": "complete" }));
-
-    if let Ok(mut downloading) = state.lock() {
-        *downloading = false;
-    }
 
     Ok("ok".to_string())
 }
