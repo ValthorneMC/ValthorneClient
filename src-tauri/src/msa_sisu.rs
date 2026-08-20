@@ -140,6 +140,7 @@ async fn get_or_refresh_device_token(
 ) -> Result<(DeviceTokenKey, DeviceToken), String> {
     let existing = sessions
         .get_device_token()
+        .await
         .map_err(|e| format!("Failed to read device identity: {}", e))?;
 
     if let Some(record) = existing {
@@ -164,18 +165,18 @@ async fn get_or_refresh_device_token(
 
             // Expired: re-register the same key, keeping the same device identity.
             let token = device_token(&key).await?;
-            persist_device_token(sessions, &key, &token)?;
+            persist_device_token(sessions, &key, &token).await?;
             return Ok((key, token));
         }
     }
 
     let key = generate_key()?;
     let token = device_token(&key).await?;
-    persist_device_token(sessions, &key, &token)?;
+    persist_device_token(sessions, &key, &token).await?;
     Ok((key, token))
 }
 
-fn persist_device_token(
+async fn persist_device_token(
     sessions: &SessionManager,
     key: &DeviceTokenKey,
     token: &DeviceToken,
@@ -199,6 +200,7 @@ fn persist_device_token(
 
     sessions
         .save_device_token(&record)
+        .await
         .map_err(|e| format!("Failed to persist device identity: {}", e))
 }
 
