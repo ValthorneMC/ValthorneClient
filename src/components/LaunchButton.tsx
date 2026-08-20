@@ -62,7 +62,7 @@ const LaunchButton: React.FC<LaunchButtonProps> = ({
 
 	// Interval to increment the time while playing or launching
 	useEffect(() => {
-		let interval: NodeJS.Timeout | null = null;
+		let interval: ReturnType<typeof setInterval> | null = null;
 		
 		const updateTime = () => {
 			const cached = launchStateCache.get(instanceId);

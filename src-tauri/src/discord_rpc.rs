@@ -27,28 +27,20 @@ pub fn initialize_discord_rpc() -> Result<(), String> {
         *connected_guard = false;
     }
 
-    match DiscordIpcClient::new(DISCORD_CLIENT_ID) {
-        Ok(mut client) => {
-            log::info!("Discord RPC client created successfully");
+    let mut client = DiscordIpcClient::new(DISCORD_CLIENT_ID);
+    log::info!("Discord RPC client created successfully");
 
-            match client.connect() {
-                Ok(_) => {
-                    log::info!("Discord RPC client connected, waiting for ready event...");
+    match client.connect() {
+        Ok(_) => {
+            log::info!("Discord RPC client connected, waiting for ready event...");
 
-                    log::info!("Discord RPC client connected, assuming ready state");
-                    *connected_guard = true;
-                    *client_guard = Some(client);
-                    Ok(())
-                }
-                Err(e) => {
-                    let error_msg = format!("Failed to connect Discord RPC client: {}", e);
-                    log::error!("{}", error_msg);
-                    Err(error_msg)
-                }
-            }
+            log::info!("Discord RPC client connected, assuming ready state");
+            *connected_guard = true;
+            *client_guard = Some(client);
+            Ok(())
         }
         Err(e) => {
-            let error_msg = format!("Failed to create Discord RPC client: {}", e);
+            let error_msg = format!("Failed to connect Discord RPC client: {}", e);
             log::error!("{}", error_msg);
             Err(error_msg)
         }
