@@ -1,3 +1,6 @@
 allowBuilds:
   '@tailwindcss/oxide': true
   esbuild: true
+
+overrides:
+  nanoid: '6.0.1'
