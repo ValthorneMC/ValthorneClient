@@ -713,25 +713,22 @@ function App() {
       }
     })();
 
-    if (accounts.length === 0 && !isLoginVisible) {
-      const timer = setTimeout(() => {
-        setIsLoginVisible(true);
-      }, 100);
-      return () => {
-        clearTimeout(timer);
-        clearInterval(updateCheckInterval);
-        if (unlistenUpdateStart) unlistenUpdateStart();
-        if (unlistenUpdateProgress) unlistenUpdateProgress();
-        if (unlistenUpdateComplete) unlistenUpdateComplete();
-      };
-    }
-    
     return () => {
       clearInterval(updateCheckInterval);
       if (unlistenUpdateStart) unlistenUpdateStart();
       if (unlistenUpdateProgress) unlistenUpdateProgress();
       if (unlistenUpdateComplete) unlistenUpdateComplete();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (accounts.length === 0 && !isLoginVisible) {
+      const timer = setTimeout(() => {
+        setIsLoginVisible(true);
+      }, 100);
+      return () => clearTimeout(timer);
+    }
   }, [accounts.length, isLoginVisible]);
 
   // Update Discord presence when the view changes
