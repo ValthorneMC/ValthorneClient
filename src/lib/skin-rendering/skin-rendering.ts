@@ -84,6 +84,16 @@ export async function loadTexture(
   return promise;
 }
 
+/** Disposes and evicts every cached texture loaded from `textureUrl`, regardless of config. */
+export function releaseTexture(textureUrl: string): void {
+  for (const key of textureCache.keys()) {
+    if (key.startsWith(`${textureUrl}_`)) {
+      textureCache.get(key)?.dispose();
+      textureCache.delete(key);
+    }
+  }
+}
+
 function applyMap(mat: THREE.MeshStandardMaterial, texture: THREE.Texture | null): boolean {
   const hadMap = mat.map !== null;
   const hasMap = texture !== null;

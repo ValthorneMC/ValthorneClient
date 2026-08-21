@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ImageUp, Info, Pencil, Plus, Save, UploadCloud, X } from 'lucide-react';
 import { SkinPreviewRenderer } from './SkinPreviewRenderer';
+import { releaseTexture } from '@/lib/skin-rendering/skin-rendering';
 import { SkinData, SkinModel, CapeData } from '@/types/skin';
 import { SkinStorageService } from '@/services/skin/skinStorage';
 import { getBestSkinTextureUrl } from '@/services/avatarService';
@@ -588,7 +589,9 @@ export const SkinManager: React.FC<SkinManagerProps> = ({ currentUser, addToast 
 
     try {
       if (blobUrlsRef.current.has(skinId)) {
-        URL.revokeObjectURL(blobUrlsRef.current.get(skinId)!);
+        const blobUrl = blobUrlsRef.current.get(skinId)!;
+        releaseTexture(blobUrl);
+        URL.revokeObjectURL(blobUrl);
         blobUrlsRef.current.delete(skinId);
       }
 
@@ -676,6 +679,7 @@ export const SkinManager: React.FC<SkinManagerProps> = ({ currentUser, addToast 
 
   const handleCloseEditModal = useCallback(() => {
     if (pendingTexturePreviewUrl) {
+      releaseTexture(pendingTexturePreviewUrl);
       URL.revokeObjectURL(pendingTexturePreviewUrl);
     }
     setShowEditModal(false);
@@ -699,6 +703,7 @@ export const SkinManager: React.FC<SkinManagerProps> = ({ currentUser, addToast 
     }
 
     if (pendingTexturePreviewUrl) {
+      releaseTexture(pendingTexturePreviewUrl);
       URL.revokeObjectURL(pendingTexturePreviewUrl);
     }
 
@@ -730,7 +735,9 @@ export const SkinManager: React.FC<SkinManagerProps> = ({ currentUser, addToast 
 
       if (textureChanged) {
         if (blobUrlsRef.current.has(activeSkin.id)) {
-          URL.revokeObjectURL(blobUrlsRef.current.get(activeSkin.id)!);
+          const oldBlobUrl = blobUrlsRef.current.get(activeSkin.id)!;
+          releaseTexture(oldBlobUrl);
+          URL.revokeObjectURL(oldBlobUrl);
           blobUrlsRef.current.delete(activeSkin.id);
         }
         const blob = new Blob([workingSkin.fileData!], { type: 'image/png' });
