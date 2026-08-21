@@ -1221,27 +1221,32 @@ pub async fn load_distribution_manifest(url: String) -> Result<DistributionManif
     Ok(manifest)
 }
 
+/// Ensures the instance's background video is downloaded locally and returns its path.
+///
+/// Returns a path (not the video bytes) so the frontend can build an `asset://` URL with
+/// `convertFileSrc` and let the webview stream it straight from disk, instead of the whole
+/// file (tens/hundreds of MB) being read into memory and serialized across the IPC bridge.
 #[tauri::command]
 pub async fn get_instance_background_video(
     base_url: String,
     instance_id: String,
     video_path: String,
-) -> Result<Vec<u8>, String> {
+) -> Result<String, String> {
     use std::path::Path;
-    
+
     let launcher = crate::launcher::MinecraftLauncher::new().map_err(|e| e.to_string())?;
     let instance_dir = launcher.config.minecraft_dir.join("instances").join(&instance_id);
     let video_dir = instance_dir.join("assets");
     tokio::fs::create_dir_all(&video_dir).await.map_err(|e| e.to_string())?;
-    
+
     // Build the file name from the path (e.g. "instances/thanatophobia2/assets/th2trailer.mp4" -> "th2trailer.mp4")
     let video_file_name = Path::new(&video_path)
         .file_name()
         .and_then(|n| n.to_str())
         .ok_or_else(|| "Invalid video path".to_string())?;
-    
+
     let local_video_path = video_dir.join(video_file_name);
-    
+
     // If the video doesn't exist locally, download it
     if !local_video_path.exists() {
         // Build the full video URL
@@ -1255,10 +1260,7 @@ pub async fn get_instance_background_video(
         crate::instances::download_file(&video_url, &local_video_path).await.map_err(|e| e.to_string())?;
     }
 
-    // Read the file as bytes
-    let video_bytes = tokio::fs::read(&local_video_path).await.map_err(|e| format!("Failed to read video file: {}", e))?;
-    
-    Ok(video_bytes)
+    Ok(local_video_path.to_string_lossy().to_string())
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke, convertFileSrc } from '@tauri-apps/api/core';
 import LaunchButton from './LaunchButton';
 import AppBackground from '@/components/AppBackground';
 import { logger } from '@/utils/logger';
@@ -44,7 +44,7 @@ interface InstanceViewProps {
 }
 
 // Global cache for videos per instance
-const videoCache = new Map<string, { blobUrl: string; loaded: boolean }>();
+const videoCache = new Map<string, { assetUrl: string; loaded: boolean }>();
 
 const InstanceView: React.FC<InstanceViewProps> = ({
   instanceId,
@@ -95,7 +95,7 @@ const InstanceView: React.FC<InstanceViewProps> = ({
 
     // If we have the video cached, use it directly
     if (cached) {
-      setLocalVideoPath(cached.blobUrl);
+      setLocalVideoPath(cached.assetUrl);
       setVideoLoaded(cached.loaded);
       setShowTitle(!cached.loaded); // Only show the title if it wasn't loaded
       return;
@@ -108,19 +108,18 @@ const InstanceView: React.FC<InstanceViewProps> = ({
     }
 
     if (instance?.background_video && instanceId && distributionBaseUrl) {
-      invoke<number[]>('get_instance_background_video', {
+      invoke<string>('get_instance_background_video', {
         baseUrl: distributionBaseUrl,
         instanceId: instanceId,
         videoPath: instance.background_video
       })
-        .then((videoBytes) => {
-          // Convert bytes to Uint8Array and create a Blob URL
-          const uint8Array = new Uint8Array(videoBytes);
-          const blob = new Blob([uint8Array], { type: 'video/mp4' });
-          const blobUrl = URL.createObjectURL(blob);
-          setLocalVideoPath(blobUrl);
+        .then((localPath) => {
+          // Stream directly from disk via the asset protocol instead of pulling the whole
+          // file across IPC as bytes.
+          const assetUrl = convertFileSrc(localPath);
+          setLocalVideoPath(assetUrl);
           // Save to cache without marking as loaded yet (will be marked when the video loads)
-          videoCache.set(cacheKey, { blobUrl, loaded: false });
+          videoCache.set(cacheKey, { assetUrl, loaded: false });
         })
         .catch((error) => {
           void logger.error('Error downloading video', error, 'InstanceView');
@@ -186,7 +185,7 @@ const InstanceView: React.FC<InstanceViewProps> = ({
               // Update cache when the video loads
               const cacheKey = `${instanceId}-${instance?.background_video}`;
               if (videoCache.has(cacheKey)) {
-                videoCache.set(cacheKey, { blobUrl: localVideoPath, loaded: true });
+                videoCache.set(cacheKey, { assetUrl: localVideoPath, loaded: true });
               }
             }}
           >
