@@ -103,12 +103,23 @@ async fn download_java_silent(java_version: u8) -> Result<(), String> {
         return Err(format!("Download failed with status: {}", response.status()));
     }
     
-    let bytes = response.bytes().await
-        .map_err(|e| format!("Failed to read Java download: {}", e))?;
-    
     let temp_file = runtime_dir.join(format!("java-{}.{}", version_str, extension));
-    tokio::fs::write(&temp_file, &bytes).await
-        .map_err(|e| format!("Failed to write temp file: {}", e))?;
+
+    // Stream to disk instead of buffering the whole JDK archive (150-200 MB) in memory.
+    use tokio::io::AsyncWriteExt;
+    let mut file = tokio::fs::File::create(&temp_file).await
+        .map_err(|e| format!("Failed to create temp file: {}", e))?;
+    let mut stream = response.bytes_stream();
+    use futures_util::TryStreamExt;
+    while let Some(chunk) = stream.try_next().await
+        .map_err(|e| format!("Failed to read Java download: {}", e))?
+    {
+        file.write_all(&chunk).await
+            .map_err(|e| format!("Failed to write temp file: {}", e))?;
+    }
+    file.flush().await
+        .map_err(|e| format!("Failed to flush temp file: {}", e))?;
+    drop(file);
     
     if java_dir.exists() {
         let _ = std::fs::remove_dir_all(&java_dir);

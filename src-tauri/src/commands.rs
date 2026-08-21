@@ -118,15 +118,19 @@ async fn download_java_inner(version: String, app_handle: AppHandle) -> Result<S
         "status": "Downloading Java"
     }));
     
-    let mut bytes = Vec::new();
+    let temp_file = runtime_dir.join(format!("java-{}.{}", version, extension));
+    let mut file = File::create(&temp_file).map_err(|e| format!("Failed to create temp file: {}", e))?;
+
+    // Write each chunk to disk as it arrives instead of buffering the whole JDK archive
+    // (150-200 MB) in memory before writing it out.
     let mut stream = response.bytes_stream();
     use futures_util::TryStreamExt;
     loop {
         match stream.try_next().await {
             Ok(Some(chunk)) => {
                 downloaded += chunk.len() as u64;
-                bytes.extend_from_slice(&chunk);
-                
+                file.write_all(&chunk).map_err(|e| format!("Failed to write temp file: {}", e))?;
+
                 // Update progress every 5%
                 if total_size > 0 {
                     let percentage = ((downloaded * 100) / total_size).min(80);
@@ -140,11 +144,8 @@ async fn download_java_inner(version: String, app_handle: AppHandle) -> Result<S
             Err(e) => return Err(format!("Failed to read chunk: {}", e)),
         }
     }
-    
-    let temp_file = runtime_dir.join(format!("java-{}.{}", version, extension));
-    let mut file = File::create(&temp_file).map_err(|e| format!("Failed to create temp file: {}", e))?;
-    file.write_all(&bytes).map_err(|e| format!("Failed to write temp file: {}", e))?;
-    file.flush().map_err(|e| format!("Failed to flush file: {}", e))?; 
+
+    file.flush().map_err(|e| format!("Failed to flush file: {}", e))?;
     drop(file);
     
     // Emit extraction progress

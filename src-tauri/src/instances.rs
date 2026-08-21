@@ -43,7 +43,7 @@ pub async fn download_file(url: &str, file_path: &Path) -> Result<(), String> {
 pub async fn download_file_with_client(client: &reqwest::Client, url: &str, file_path: &Path) -> Result<(), String> {
     use tokio::io::AsyncWriteExt;
 
-    let response = client
+    let mut response = client
         .get(url)
         .send()
         .await
@@ -64,12 +64,15 @@ pub async fn download_file_with_client(client: &reqwest::Client, url: &str, file
         .await
         .map_err(|e| format!("Failed to create temp file {}: {}", tmp_path.display(), e))?;
 
-    // Full download at once (much faster than chunked)
-    let bytes = response.bytes().await
-        .map_err(|e| format!("Failed to read response bytes from {}: {}", url, e))?;
-
-    tmp_file.write_all(&bytes).await
-        .map_err(|e| format!("Failed to write bytes to {}: {}", tmp_path.display(), e))?;
+    // Stream chunk-by-chunk instead of buffering the whole body: with 50-100 downloads
+    // running in parallel, buffering full files (mods/assets can be 100+ MB) caused
+    // multi-GB memory spikes.
+    while let Some(chunk) = response.chunk().await
+        .map_err(|e| format!("Failed to read response bytes from {}: {}", url, e))?
+    {
+        tmp_file.write_all(&chunk).await
+            .map_err(|e| format!("Failed to write bytes to {}: {}", tmp_path.display(), e))?;
+    }
 
     tmp_file
         .flush()
