@@ -76,6 +76,28 @@ export const SkinPreviewRenderer: React.FC<SkinPreviewRendererProps> = ({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [containerElement, setContainerElement] = useState<HTMLElement | null>(null);
 
+  // Grids can mount dozens of these at once (e.g. the skin library). Defer creating the
+  // WebGL context until the preview actually scrolls into view, and keep tracking
+  // visibility afterwards so the render loop can pause while scrolled out instead of
+  // burning GPU/CPU on off-screen thumbnails.
+  const [shouldMount, setShouldMount] = useState(false);
+  const isVisibleRef = useRef(false);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        isVisibleRef.current = entry.isIntersecting;
+        if (entry.isIntersecting) setShouldMount(true);
+      },
+      { rootMargin: '150px' },
+    );
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, []);
+
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const threeSceneRef = useRef<THREE.Scene | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
@@ -138,9 +160,10 @@ export const SkinPreviewRenderer: React.FC<SkinPreviewRendererProps> = ({
 
   const radialSpotlightShader = useMemo(() => createRadialSpotlightShader(), []);
 
-  // Set up the Three.js renderer/scene/camera/lights/spotlight once on mount.
+  // Set up the Three.js renderer/scene/camera/lights/spotlight once the preview has
+  // scrolled into view at least once (see the IntersectionObserver effect above).
   useEffect(() => {
-    if (!canvasRef.current) return;
+    if (!shouldMount || !canvasRef.current) return;
 
     const renderer = new THREE.WebGLRenderer({
       canvas: canvasRef.current,
@@ -184,6 +207,7 @@ export const SkinPreviewRenderer: React.FC<SkinPreviewRendererProps> = ({
     const renderLoop = () => {
       if (disposed) return;
       rafId = requestAnimationFrame(renderLoop);
+      if (!isVisibleRef.current) return;
 
       const delta = clock.getDelta();
       updateAnimation(delta);
@@ -215,6 +239,8 @@ export const SkinPreviewRenderer: React.FC<SkinPreviewRendererProps> = ({
     return () => {
       disposed = true;
       cancelAnimationFrame(rafId);
+      spotlightGeometry.dispose();
+      spotlightMaterial.dispose();
       renderer.dispose();
       rendererRef.current = null;
       threeSceneRef.current = null;
@@ -224,7 +250,7 @@ export const SkinPreviewRenderer: React.FC<SkinPreviewRendererProps> = ({
       spotlightMeshRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [shouldMount]);
 
   // Track the model group's position/scale/offset, applying click-impulse offsets each frame
   // via a small ref-driven wrapper effect (position/scale change infrequently; impulse changes
