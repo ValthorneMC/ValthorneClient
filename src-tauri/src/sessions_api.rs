@@ -211,7 +211,7 @@ async fn validate_access_token_local(access_token: &str) -> Result<bool, String>
 }
 
 async fn fetch_profile_json(access_token: &str) -> Result<serde_json::Value, String> {
-    let client = reqwest::Client::new();
+    let client = &crate::http_client::HTTP_CLIENT;
     let response = client
         .get("https://api.minecraftservices.com/minecraft/profile")
         .header("Authorization", format!("Bearer {}", access_token))

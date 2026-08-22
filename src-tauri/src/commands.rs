@@ -213,7 +213,7 @@ pub async fn upload_skin_to_mojang(file_path: String, variant: String, access_to
     let normalized_data = crate::skin_texture::normalize_skin_texture(&file_data)?;
     if normalized_data.len() > 24 * 1024 { return Err("Skin file must be smaller than 24KB".to_string()); }
 
-    let client = reqwest::Client::new();
+    let client = &crate::http_client::HTTP_CLIENT;
     let form = reqwest::multipart::Form::new()
         .text("variant", variant)
         .part("file", reqwest::multipart::Part::bytes(normalized_data).file_name("skin.png").mime_str("image/png").unwrap());
@@ -261,7 +261,7 @@ struct MojangProfileCapesResponse {
 
 #[tauri::command]
 pub async fn get_player_capes(access_token: String) -> Result<Vec<CapeInfo>, String> {
-    let client = reqwest::Client::new();
+    let client = &crate::http_client::HTTP_CLIENT;
     let response = client
         .get("https://api.minecraftservices.com/minecraft/profile")
         .header("Accept", "application/json")
@@ -295,7 +295,7 @@ struct SetActiveCapeBody {
 
 #[tauri::command]
 pub async fn set_active_cape(cape_id: String, access_token: String) -> Result<String, String> {
-    let client = reqwest::Client::new();
+    let client = &crate::http_client::HTTP_CLIENT;
     let response = client
         .put("https://api.minecraftservices.com/minecraft/profile/capes/active")
         .header("Accept", "application/json")
@@ -321,7 +321,7 @@ pub async fn set_active_cape(cape_id: String, access_token: String) -> Result<St
 
 #[tauri::command]
 pub async fn remove_active_cape(access_token: String) -> Result<String, String> {
-    let client = reqwest::Client::new();
+    let client = &crate::http_client::HTTP_CLIENT;
     let response = client
         .delete("https://api.minecraftservices.com/minecraft/profile/capes/active")
         .header("Accept", "application/json")
@@ -837,7 +837,7 @@ async fn download_instance_assets_inner(
     if let (Some(base_ml), Some(inst_url_ml)) = (base_url.clone(), instance_url.clone()) {
         base_url_for_assets = Some(base_ml.clone());
         let full_url = if inst_url_ml.starts_with("http") { inst_url_ml } else { format!("{}/{}", base_ml.trim_end_matches('/'), inst_url_ml.trim_start_matches('/')) };
-        let client = reqwest::Client::new();
+        let client = &crate::http_client::HTTP_CLIENT;
         let response = client.get(&full_url).send().await.map_err(|e| format!("Failed to fetch instance details: {}", e))?;
         if !response.status().is_success() { return Err(format!("HTTP error: {}", response.status())); }
         let manifest: crate::models::InstanceManifest = response.json().await.map_err(|e| format!("Failed to parse instance JSON: {}", e))?;
@@ -1214,7 +1214,7 @@ async fn download_instance_assets_inner(
 
 #[tauri::command]
 pub async fn load_distribution_manifest(url: String) -> Result<DistributionManifest, String> {
-    let client = reqwest::Client::new();
+    let client = &crate::http_client::HTTP_CLIENT;
     let response = client.get(&url).send().await.map_err(|e| format!("Failed to fetch manifest: {}", e))?;
     if !response.status().is_success() { return Err(format!("HTTP error: {}", response.status())); }
     let manifest: DistributionManifest = response.json().await.map_err(|e| format!("Failed to parse manifest JSON: {}", e))?;
@@ -1273,7 +1273,7 @@ pub struct ProfileResponse {
 
 #[tauri::command]
 pub async fn get_minecraft_profile_safe(access_token: String) -> Result<ProfileResponse, String> {
-    let client = reqwest::Client::new();
+    let client = &crate::http_client::HTTP_CLIENT;
     let response = client
         .get("https://api.minecraftservices.com/minecraft/profile")
         .header("Accept", "application/json")

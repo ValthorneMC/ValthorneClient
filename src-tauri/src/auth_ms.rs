@@ -10,7 +10,7 @@ pub fn extract_auth_code_from_url(url_str: &str) -> Option<String> {
 }
 
 pub async fn get_minecraft_profile_from_token(access_token: &str) -> anyhow::Result<serde_json::Value> {
-    let client = reqwest::Client::new();
+    let client = &crate::http_client::HTTP_CLIENT;
     let response = client
         .get("https://api.minecraftservices.com/minecraft/profile")
         .header("Accept", "application/json")

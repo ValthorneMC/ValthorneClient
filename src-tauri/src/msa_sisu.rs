@@ -396,7 +396,7 @@ async fn oauth_refresh(refresh_token: &str) -> Result<OAuthToken, String> {
 }
 
 async fn post_oauth_form(query: &HashMap<&str, &str>) -> Result<OAuthToken, String> {
-    let client = reqwest::Client::new();
+    let client = &crate::http_client::HTTP_CLIENT;
     let response = client
         .post("https://login.live.com/oauth20_token.srf")
         .header("Accept", "application/json")
@@ -431,7 +431,7 @@ async fn minecraft_token(token: &DeviceToken) -> Result<MinecraftTokenResponse, 
         .and_then(|x| x.as_str())
         .ok_or("Failed to read Xbox Live user hash")?;
 
-    let client = reqwest::Client::new();
+    let client = &crate::http_client::HTTP_CLIENT;
     let response = client
         .post("https://api.minecraftservices.com/launcher/login")
         .header("Accept", "application/json")
@@ -453,7 +453,7 @@ async fn minecraft_token(token: &DeviceToken) -> Result<MinecraftTokenResponse, 
 }
 
 async fn minecraft_entitlements(access_token: &str) -> Result<(), String> {
-    let client = reqwest::Client::new();
+    let client = &crate::http_client::HTTP_CLIENT;
     let response = client
         .get(format!("https://api.minecraftservices.com/entitlements/license?requestId={}", Uuid::new_v4()))
         .header("Accept", "application/json")
@@ -519,7 +519,7 @@ async fn send_signed_request<T: DeserializeOwned>(
     sig_buffer.extend_from_slice(&signature.s().to_bytes());
     let signature_header = BASE64_STANDARD.encode(&sig_buffer);
 
-    let client = reqwest::Client::new();
+    let client = &crate::http_client::HTTP_CLIENT;
     let mut request = client
         .post(url)
         .header("Content-Type", "application/json; charset=utf-8")
