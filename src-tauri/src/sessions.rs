@@ -1,11 +1,11 @@
 use chrono::Utc;
 use log::{info, warn, error};
 use serde::{Deserialize, Serialize};
-use sqlx::sqlite::{SqliteConnectOptions, SqliteConnection};
-use sqlx::Connection;
+use sqlx::sqlite::{SqliteConnectOptions, SqlitePool, SqlitePoolOptions};
 use std::path::PathBuf;
 use std::str::FromStr;
 use tauri::{AppHandle, Manager};
+use tokio::sync::OnceCell;
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct Session {
@@ -55,6 +55,12 @@ pub struct DeviceTokenRecord {
     pub display_claims: String,
 }
 
+// A `SessionManager` is constructed fresh on every Tauri command invocation, but the
+// underlying connection pool is process-wide: `db_path` never changes at runtime, so all
+// instances share the same pool instead of each command opening (and migrating) its own
+// SQLite connection.
+static POOL: OnceCell<SqlitePool> = OnceCell::const_new();
+
 pub struct SessionManager {
     pub db_path: PathBuf,
 }
@@ -70,16 +76,24 @@ impl SessionManager {
         Ok(Self { db_path })
     }
 
-async fn connect(&self) -> Result<SqliteConnection, String> {
-        let options = SqliteConnectOptions::from_str(&self.db_path.to_string_lossy())
-            .map_err(|e| e.to_string())?
-            .create_if_missing(true);
-        let mut conn = SqliteConnection::connect_with(&options).await.map_err(|e| e.to_string())?;
-        self.ensure_schema(&mut conn).await?;
-        Ok(conn)
+    async fn pool(&self) -> Result<&'static SqlitePool, String> {
+        POOL.get_or_try_init(|| async {
+            let options = SqliteConnectOptions::from_str(&self.db_path.to_string_lossy())
+                .map_err(|e| e.to_string())?
+                .create_if_missing(true);
+            let pool = SqlitePoolOptions::new()
+                .max_connections(4)
+                .connect_with(options)
+                .await
+                .map_err(|e| e.to_string())?;
+            Self::ensure_schema(&pool).await?;
+            info!("Sessions database initialized at: {:?}", self.db_path);
+            Ok::<SqlitePool, String>(pool)
+        })
+        .await
     }
 
-    async fn ensure_schema(&self, conn: &mut SqliteConnection) -> Result<(), String> {
+    async fn ensure_schema(pool: &SqlitePool) -> Result<(), String> {
         sqlx::query(
             "CREATE TABLE IF NOT EXISTS sessions (
                 id TEXT PRIMARY KEY,
@@ -93,34 +107,34 @@ async fn connect(&self) -> Result<SqliteConnection, String> {
                 is_active INTEGER NOT NULL DEFAULT 1
             )",
         )
-        .execute(&mut *conn)
+        .execute(pool)
         .await
         .map_err(|e| e.to_string())?;
 
         // Create index for faster lookups by username
         sqlx::query("CREATE INDEX IF NOT EXISTS idx_sessions_username ON sessions(username)")
-            .execute(&mut *conn)
+            .execute(pool)
             .await
             .map_err(|e| e.to_string())?;
 
         // Ensure unique username to avoid duplicates
         let _ = sqlx::query("CREATE UNIQUE INDEX IF NOT EXISTS uniq_sessions_username ON sessions(username)")
-            .execute(&mut *conn)
+            .execute(pool)
             .await;
 
         // Try to add is_active column in case of older schema (ignore error if exists)
         let _ = sqlx::query("ALTER TABLE sessions ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1")
-            .execute(&mut *conn)
+            .execute(pool)
             .await;
 
         // Try to add uuid column in case of older schema (ignore error if exists)
         let _ = sqlx::query("ALTER TABLE sessions ADD COLUMN uuid TEXT NOT NULL DEFAULT ''")
-            .execute(&mut *conn)
+            .execute(pool)
             .await;
 
         // Create index for expiration checks
         sqlx::query("CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at)")
-            .execute(&mut *conn)
+            .execute(pool)
             .await
             .map_err(|e| e.to_string())?;
 
@@ -140,28 +154,27 @@ async fn connect(&self) -> Result<SqliteConnection, String> {
                 display_claims TEXT NOT NULL
             )",
         )
-        .execute(&mut *conn)
+        .execute(pool)
         .await
         .map_err(|e| e.to_string())?;
 
-        info!("Sessions database initialized at: {:?}", self.db_path);
         Ok(())
     }
 
     pub async fn get_device_token(&self) -> Result<Option<DeviceTokenRecord>, String> {
-        let mut conn = self.connect().await?;
+        let pool = self.pool().await?;
 
         sqlx::query_as::<_, DeviceTokenRecord>(
             "SELECT device_uuid, private_key_pem, x, y, issue_instant, not_after, token, display_claims
              FROM msa_device_tokens WHERE id = 0",
         )
-        .fetch_optional(&mut conn)
+        .fetch_optional(pool)
         .await
         .map_err(|e| e.to_string())
     }
 
     pub async fn save_device_token(&self, record: &DeviceTokenRecord) -> Result<(), String> {
-        let mut conn = self.connect().await?;
+        let pool = self.pool().await?;
 
         sqlx::query(
             "INSERT INTO msa_device_tokens (id, device_uuid, private_key_pem, x, y, issue_instant, not_after, token, display_claims)
@@ -184,7 +197,7 @@ async fn connect(&self) -> Result<SqliteConnection, String> {
         .bind(record.not_after)
         .bind(&record.token)
         .bind(&record.display_claims)
-        .execute(&mut conn)
+        .execute(pool)
         .await
         .map_err(|e| e.to_string())?;
 
@@ -192,7 +205,7 @@ async fn connect(&self) -> Result<SqliteConnection, String> {
     }
 
     pub async fn save_session(&self, session: &Session) -> Result<(), String> {
-        let mut conn = self.connect().await?;
+        let pool = self.pool().await?;
 
         sqlx::query(
             "INSERT INTO sessions (id, username, uuid, access_token, refresh_token, expires_at, created_at, updated_at, is_active)
@@ -212,7 +225,7 @@ async fn connect(&self) -> Result<SqliteConnection, String> {
         .bind(session.expires_at)
         .bind(session.created_at)
         .bind(session.updated_at)
-        .execute(&mut conn)
+        .execute(pool)
         .await
         .map_err(|e| e.to_string())?;
 
@@ -221,14 +234,14 @@ async fn connect(&self) -> Result<SqliteConnection, String> {
     }
 
     pub async fn get_session(&self, username: &str) -> Result<Option<Session>, String> {
-        let mut conn = self.connect().await?;
+        let pool = self.pool().await?;
 
         let result = sqlx::query_as::<_, Session>(
             "SELECT id, username, uuid, access_token, refresh_token, expires_at, created_at, updated_at
              FROM sessions WHERE username = ?",
         )
         .bind(username)
-        .fetch_optional(&mut conn)
+        .fetch_optional(pool)
         .await
         .map_err(|e| e.to_string());
 
@@ -249,13 +262,13 @@ async fn connect(&self) -> Result<SqliteConnection, String> {
     }
 
     pub async fn get_all_sessions(&self) -> Result<Vec<Session>, String> {
-        let mut conn = self.connect().await?;
+        let pool = self.pool().await?;
 
         let sessions = sqlx::query_as::<_, Session>(
             "SELECT id, username, uuid, access_token, refresh_token, expires_at, created_at, updated_at
              FROM sessions ORDER BY updated_at DESC",
         )
-        .fetch_all(&mut conn)
+        .fetch_all(pool)
         .await
         .map_err(|e| e.to_string())?;
 
@@ -264,7 +277,7 @@ async fn connect(&self) -> Result<SqliteConnection, String> {
     }
 
     pub async fn update_session(&self, session: &Session) -> Result<(), String> {
-        let mut conn = self.connect().await?;
+        let pool = self.pool().await?;
 
         sqlx::query(
             "UPDATE sessions SET access_token = ?, refresh_token = ?, expires_at = ?, updated_at = ?
@@ -275,7 +288,7 @@ async fn connect(&self) -> Result<SqliteConnection, String> {
         .bind(session.expires_at)
         .bind(session.updated_at)
         .bind(&session.username)
-        .execute(&mut conn)
+        .execute(pool)
         .await
         .map_err(|e| e.to_string())?;
 
@@ -284,11 +297,11 @@ async fn connect(&self) -> Result<SqliteConnection, String> {
     }
 
     pub async fn delete_session(&self, username: &str) -> Result<(), String> {
-        let mut conn = self.connect().await?;
+        let pool = self.pool().await?;
 
         let result = sqlx::query("DELETE FROM sessions WHERE username = ?")
             .bind(username)
-            .execute(&mut conn)
+            .execute(pool)
             .await
             .map_err(|e| e.to_string())?;
 
@@ -302,10 +315,10 @@ async fn connect(&self) -> Result<SqliteConnection, String> {
     }
 
     pub async fn clear_all_sessions(&self) -> Result<(), String> {
-        let mut conn = self.connect().await?;
+        let pool = self.pool().await?;
 
         let result = sqlx::query("DELETE FROM sessions")
-            .execute(&mut conn)
+            .execute(pool)
             .await
             .map_err(|e| e.to_string())?;
 
@@ -314,12 +327,12 @@ async fn connect(&self) -> Result<SqliteConnection, String> {
     }
 
     pub async fn cleanup_expired_sessions(&self) -> Result<usize, String> {
-        let mut conn = self.connect().await?;
+        let pool = self.pool().await?;
 
         let now = Utc::now().timestamp();
         let result = sqlx::query("DELETE FROM sessions WHERE expires_at < ?")
             .bind(now)
-            .execute(&mut conn)
+            .execute(pool)
             .await
             .map_err(|e| e.to_string())?;
 
@@ -332,7 +345,7 @@ async fn connect(&self) -> Result<SqliteConnection, String> {
     }
 
     pub async fn get_active_session(&self) -> Result<Option<Session>, String> {
-        let mut conn = self.connect().await?;
+        let pool = self.pool().await?;
 
         let now = Utc::now().timestamp();
 
@@ -341,7 +354,7 @@ async fn connect(&self) -> Result<SqliteConnection, String> {
              FROM sessions WHERE expires_at > ? AND is_active = 1 ORDER BY updated_at DESC LIMIT 1",
         )
         .bind(now)
-        .fetch_optional(&mut conn)
+        .fetch_optional(pool)
         .await
         .map_err(|e| e.to_string());
 
