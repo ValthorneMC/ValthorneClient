@@ -2,12 +2,18 @@ use log::{Level, LevelFilter, Metadata, Record};
 use std::fs::{File, OpenOptions};
 use std::io::{BufReader, BufWriter, Write};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Mutex;
 use chrono::Local;
 use flate2::{write::GzEncoder, Compression};
 
+/// How many buffered Info/Debug lines to let pile up before forcing a flush. Warn/Error
+/// always flush immediately regardless of this.
+const FLUSH_EVERY_N_LINES: u32 = 50;
+
 pub struct Logger {
     file: Mutex<BufWriter<File>>,
+    lines_since_flush: AtomicU32,
 }
 
 impl Logger {
@@ -26,6 +32,7 @@ impl Logger {
         
         Ok(Logger {
             file: Mutex::new(BufWriter::new(file)),
+            lines_since_flush: AtomicU32::new(0),
         })
     }
     
@@ -101,9 +108,18 @@ impl log::Log for Logger {
             
             let log_line = format!("[{}] {} {}: {}\n", timestamp, level, target, args);
             
+            // Warn/Error flush immediately (worth the I/O cost for anything worth noticing);
+            // Info/Debug (this is where all of Minecraft's redirected stdout/stderr lands,
+            // which can be extremely noisy) only flush every FLUSH_EVERY_N_LINES lines.
+            let should_flush = level <= Level::Warn
+                || self.lines_since_flush.fetch_add(1, Ordering::Relaxed) + 1 >= FLUSH_EVERY_N_LINES;
+
             if let Ok(mut file) = self.file.lock() {
                 let _ = file.write_all(log_line.as_bytes());
-                let _ = file.flush();
+                if should_flush {
+                    let _ = file.flush();
+                    self.lines_since_flush.store(0, Ordering::Relaxed);
+                }
             }
             
             // Also print to console in debug mode

@@ -379,6 +379,9 @@ pub fn run() {
         .manage(crate::commands::PendingUpdateState::default())
         .on_window_event(move |window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                // Batched Info/Debug log lines only flush every few dozen lines now (see
+                // logging.rs); make sure whatever's still buffered lands on disk before exit.
+                log::logger().flush();
                 let app_handle = window.app_handle();
                 if let Some(state) = app_handle.try_state::<Arc<Mutex<bool>>>() {
                     if let Ok(downloading) = state.lock() {
