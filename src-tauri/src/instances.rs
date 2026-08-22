@@ -91,6 +91,16 @@ pub async fn download_file_with_client(client: &reqwest::Client, url: &str, file
     Ok(())
 }
 
+/// Delay before retry `attempt` (1-based): exponential backoff (1s, 2s, 4s, ...) capped at
+/// 10s, with up to 250ms of random jitter so dozens of parallel downloads retrying after
+/// the same failure don't all hammer the server again in lockstep.
+fn retry_backoff(attempt: u32) -> std::time::Duration {
+    use rand::RngExt;
+    let base_ms = 1000u64.saturating_mul(1u64 << (attempt - 1).min(4)).min(10_000);
+    let jitter_ms = rand::rng().random::<u64>() % 250;
+    std::time::Duration::from_millis(base_ms + jitter_ms)
+}
+
 pub async fn download_file_with_retry(url: &str, file_path: &Path) -> Result<(), String> {
     const MAX_RETRIES: u32 = 3;
 
@@ -99,7 +109,7 @@ pub async fn download_file_with_retry(url: &str, file_path: &Path) -> Result<(),
             Ok(_) => return Ok(()),
             Err(_e) => {
                 if attempt < MAX_RETRIES {
-                    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+                    tokio::time::sleep(retry_backoff(attempt)).await;
                 }
             }
         }
@@ -116,7 +126,7 @@ pub async fn download_file_with_retry_and_client(client: &reqwest::Client, url: 
             Ok(_) => return Ok(()),
             Err(_e) => {
                 if attempt < MAX_RETRIES {
-                    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+                    tokio::time::sleep(retry_backoff(attempt)).await;
                 }
             }
         }
