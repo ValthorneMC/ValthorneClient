@@ -50,7 +50,11 @@ const UserProfile: React.FC<UserProfileProps> = ({
                     ? 'border-[#d4af37] shadow-lg neon-glow-cyan scale-110'
                     : 'border-white/20 hover:border-[#d4af37]/50 hover:scale-105'
                 }`}
-                onClick={() => onSwitchAccount(account)}
+                onClick={() => {
+                  if (account.id !== currentAccount?.id) {
+                    onSwitchAccount(account);
+                  }
+                }}
               >
                 <Avatar
                   uuid={account.user.uuid}
