@@ -598,7 +598,17 @@ function App() {
               setUpdateDialogState({ isDownloadReady: false, hasUpdateAvailable: true, version: finalState.available_version });
               setUpdateDialogOpen(true);
             }
-          } 
+          } else {
+            // on macOS, WKWebView can throttle/delay event
+            // delivery while the window is unfocused, leaving the toast stuck even
+            // though the download already finished
+            setUpdateDownloadProgress(null);
+            setUpdateDownloadVersion(null);
+            const finalState = await UpdaterService.getUpdateState();
+            if (finalState.download_ready && finalState.available_version) {
+              setUpdateReadyVersion(finalState.available_version);
+            }
+          }
         }
       }
     } catch (error) {
@@ -632,6 +642,13 @@ function App() {
             if (newState.available_version && !newState.download_ready) {
               setUpdateDialogState({ isDownloadReady: false, hasUpdateAvailable: true, version: newState.available_version });
               setUpdateDialogOpen(true);
+            }
+          } else {
+            setUpdateDownloadProgress(null);
+            setUpdateDownloadVersion(null);
+            const newState = await UpdaterService.getUpdateState();
+            if (newState.download_ready && newState.available_version) {
+              setUpdateReadyVersion(newState.available_version);
             }
           }
         }

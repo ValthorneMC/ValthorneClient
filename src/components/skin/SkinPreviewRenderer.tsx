@@ -300,7 +300,9 @@ export const SkinPreviewRenderer: React.FC<SkinPreviewRendererProps> = ({
       inner.add(scene);
       currentModelChildRef.current = scene;
     }
-  }, [scene]);
+    // Also re-run once the renderer/groups exist (`shouldMount`): the model can finish
+    // loading before the lazy-mounted WebGL setup effect has populated `modelGroupInnerRef`.
+  }, [scene, shouldMount]);
 
   // Apply camera fov/position/lookAt whenever the computed fit changes.
   useEffect(() => {
@@ -311,7 +313,8 @@ export const SkinPreviewRenderer: React.FC<SkinPreviewRendererProps> = ({
     camera.position.set(...cameraConfig.position);
     camera.lookAt(...cameraConfig.target);
     camera.updateProjectionMatrix();
-  }, [cameraConfig]);
+    // Also re-run once the camera exists (`shouldMount`, see note on the scene-attach effect).
+  }, [cameraConfig, shouldMount]);
 
   // Apply spotlight position/scale whenever fit changes.
   useEffect(() => {
@@ -320,7 +323,8 @@ export const SkinPreviewRenderer: React.FC<SkinPreviewRendererProps> = ({
 
     mesh.position.set(...spotlightPosition);
     mesh.scale.set(...spotlightScale);
-  }, [spotlightPosition, spotlightScale]);
+    // Also re-run once the spotlight mesh exists (`shouldMount`, see note above).
+  }, [spotlightPosition, spotlightScale, shouldMount]);
 
   // Keep the container element ref for the fit hook's ResizeObserver.
   useEffect(() => {
