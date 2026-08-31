@@ -44,11 +44,17 @@ jobs:
         with:
           workspaces: './src-tauri -> target'
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: latest
+
       - name: Setup Node.js
         uses: actions/setup-node@v7
         with:
           node-version: lts/*
-      
+          cache: pnpm
+
       - name: Get version from Cargo.toml
         id: version
         uses: SebRollen/toml-action@v1.2.0
@@ -56,13 +62,8 @@ jobs:
           file: 'src-tauri/Cargo.toml'
           field: 'package.version'
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v6
-        with:
-          version: latest
-
       - name: Install frontend dependencies
-        run: pnpm install
+        run: pnpm install --frozen-lockfile
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
