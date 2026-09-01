@@ -44,7 +44,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["msi", "nsis", "dmg", "deb", "rpm", "appimage"],
     "createUpdaterArtifacts": true,
     "macOS": {
       "entitlements": "entitlements.plist",
