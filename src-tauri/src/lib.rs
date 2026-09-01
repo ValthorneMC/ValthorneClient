@@ -332,8 +332,9 @@ async fn launch_minecraft_with_auth(
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    #[cfg(debug_assertions)]
     dotenv::dotenv().ok();
-    
+
     // Initialize logging system
     if let Err(e) = logging::init_logging() {
         eprintln!("Error initializing logging: {}", e);
