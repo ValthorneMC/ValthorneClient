@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useSyncExternalStore } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import { useTranslation } from "react-i18next";
 import { CircleCheck, RefreshCw, TriangleAlert } from "lucide-react";
+import { Modal } from "@/components/ui/Modal";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -1194,309 +1195,107 @@ function App() {
       <Toaster position="bottom-right" theme="dark" duration={5000} />
 
       {/* Update Dialog */}
-      {updateDialogOpen && updateDialogState && (
-        <div 
-          className="fixed inset-0 z-50 flex items-center justify-center animate-fade-in"
-          style={{
-            background: 'rgba(0, 0, 0, 0.6)',
-            backdropFilter: 'blur(8px)',
-            WebkitBackdropFilter: 'blur(8px)'
-          }}
-          onClick={(e) => {
-            if (e.target === e.currentTarget) {
-              setUpdateDialogOpen(false);
-            }
-          }}
-        >
-          <div 
-            className="rounded-3xl p-10 max-w-md w-full mx-4 animate-slide-up"
-            style={{
-              background: updateDialogState.isDownloadReady
-                ? 'linear-gradient(145deg, rgba(17, 24, 39, 0.98) 0%, rgba(31, 41, 55, 0.95) 100%)'
-                : 'linear-gradient(145deg, rgba(17, 24, 39, 0.98) 0%, rgba(31, 41, 55, 0.95) 100%)',
-              backdropFilter: 'blur(32px)',
-              WebkitBackdropFilter: 'blur(32px)',
-              boxShadow: updateDialogState.isDownloadReady
-                ? '0 25px 80px -12px rgba(34, 197, 94, 0.5), 0 0 0 1px rgba(34, 197, 94, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.05)'
-                : '0 25px 80px -12px rgba(59, 130, 246, 0.5), 0 0 0 1px rgba(59, 130, 246, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.05)',
-              border: updateDialogState.isDownloadReady
-                ? '1px solid rgba(34, 197, 94, 0.25)'
-                : '1px solid rgba(59, 130, 246, 0.25)'
-            }}
-          >
-            <div className="text-center">
-              <div 
-                className="w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6 animate-scale-in"
-                style={{
-                  animationDelay: '0.1s',
-                  animationFillMode: 'both',
-                  background: updateDialogState.isDownloadReady
-                    ? 'radial-gradient(circle, rgba(34, 197, 94, 0.25) 0%, rgba(34, 197, 94, 0.1) 100%)'
-                    : 'radial-gradient(circle, rgba(59, 130, 246, 0.25) 0%, rgba(59, 130, 246, 0.1) 100%)',
-                  backdropFilter: 'blur(12px)',
-                  WebkitBackdropFilter: 'blur(12px)',
-                  border: updateDialogState.isDownloadReady
-                    ? '2px solid rgba(34, 197, 94, 0.4)'
-                    : '2px solid rgba(59, 130, 246, 0.4)',
-                  boxShadow: updateDialogState.isDownloadReady
-                    ? '0 0 30px rgba(34, 197, 94, 0.3), inset 0 0 20px rgba(34, 197, 94, 0.1)'
-                    : '0 0 30px rgba(59, 130, 246, 0.3), inset 0 0 20px rgba(59, 130, 246, 0.1)'
-                }}
-              >
-                {updateDialogState.isDownloadReady ? (
-                  <CircleCheck
-                    className="w-10 h-10 text-green-400"
-                    style={{ filter: 'drop-shadow(0 0 8px rgba(34, 197, 94, 0.6))' }}
-                  />
-                ) : (
-                  <RefreshCw
-                    className="w-10 h-10 text-blue-400"
-                    style={{ filter: 'drop-shadow(0 0 8px rgba(59, 130, 246, 0.6))' }}
-                  />
-                )}
-              </div>
-
-              {updateDialogState.isDownloadReady ? (
-                <>
-                  <h3 className="text-3xl font-bold text-white mb-3 animate-fade-in-up" style={{ animationDelay: '0.2s', animationFillMode: 'both' }}>
-                    {t('updater:dialog.readyTitle')}
-                  </h3>
-                  <p className="text-white/70 mb-8 leading-relaxed animate-fade-in-up" style={{ animationDelay: '0.3s', animationFillMode: 'both' }}>
-                    {t('updater:dialog.readyBody')}
-                  </p>
-                  
-                  <div className="flex gap-4 justify-center animate-fade-in-up" style={{ animationDelay: '0.4s', animationFillMode: 'both' }}>
-                    <button
-                      onClick={async () => {
-                        setUpdateDialogOpen(false);
-                        await new Promise(resolve => setTimeout(resolve, 200));
-                        try {
-                          const result = await UpdaterService.installUpdate();
-                          if (result.success) {
-                            addToast(t('updater:installedRestart'), 'success');
-                          } else {
-                            addToast(t('updater:installFailed'), 'error');
-                          }
-                        } catch (error) {
+      {updateDialogState && (
+        <Modal
+          open={updateDialogOpen}
+          onClose={() => setUpdateDialogOpen(false)}
+          accent={updateDialogState.isDownloadReady ? 'green' : 'gold'}
+          icon={
+            updateDialogState.isDownloadReady ? (
+              <CircleCheck className="w-10 h-10 text-green-400" style={{ filter: 'drop-shadow(0 0 8px rgba(34, 197, 94, 0.6))' }} />
+            ) : (
+              <RefreshCw className="w-10 h-10 text-[#e8cf7a]" style={{ filter: 'drop-shadow(0 0 8px rgba(212, 175, 55, 0.6))' }} />
+            )
+          }
+          title={updateDialogState.isDownloadReady ? t('updater:dialog.readyTitle') : t('updater:dialog.availableTitle')}
+          description={
+            updateDialogState.isDownloadReady
+              ? t('updater:dialog.readyBody')
+              : t('updater:dialog.availableBody', { version: updateDialogState.version })
+          }
+          actions={
+            updateDialogState.isDownloadReady
+              ? [
+                  {
+                    label: t('updater:dialog.installNow'),
+                    variant: 'primary',
+                    onClick: async () => {
+                      setUpdateDialogOpen(false);
+                      await new Promise(resolve => setTimeout(resolve, 200));
+                      try {
+                        const result = await UpdaterService.installUpdate();
+                        if (result.success) {
+                          addToast(t('updater:installedRestart'), 'success');
+                        } else {
                           addToast(t('updater:installFailed'), 'error');
                         }
-                      }}
-                      className="px-8 py-3.5 rounded-xl font-semibold text-green-100 transition-all duration-300 hover:scale-105 active:scale-95"
-                      style={{
-                        background: 'linear-gradient(135deg, rgba(34, 197, 94, 0.2) 0%, rgba(22, 163, 74, 0.15) 100%)',
-                        backdropFilter: 'blur(16px)',
-                        WebkitBackdropFilter: 'blur(16px)',
-                        border: '1.5px solid rgba(34, 197, 94, 0.4)',
-                        boxShadow: '0 4px 20px rgba(34, 197, 94, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.1)'
-                      }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.background = 'linear-gradient(135deg, rgba(34, 197, 94, 0.3) 0%, rgba(22, 163, 74, 0.25) 100%)';
-                        e.currentTarget.style.boxShadow = '0 8px 30px rgba(34, 197, 94, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.15)';
-                        e.currentTarget.style.borderColor = 'rgba(34, 197, 94, 0.6)';
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.background = 'linear-gradient(135deg, rgba(34, 197, 94, 0.2) 0%, rgba(22, 163, 74, 0.15) 100%)';
-                        e.currentTarget.style.boxShadow = '0 4px 20px rgba(34, 197, 94, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.1)';
-                        e.currentTarget.style.borderColor = 'rgba(34, 197, 94, 0.4)';
-                      }}
-                    >
-                      {t('updater:dialog.installNow')}
-                    </button>
-                  </div>
-                </>
-              ) : updateDialogState.hasUpdateAvailable ? (
-                <>
-                  <h3 className="text-3xl font-bold text-white mb-3 animate-fade-in-up" style={{ animationDelay: '0.2s', animationFillMode: 'both' }}>
-                    {t('updater:dialog.availableTitle')}
-                  </h3>
-                  <p className="text-white/70 mb-8 leading-relaxed animate-fade-in-up" style={{ animationDelay: '0.3s', animationFillMode: 'both' }}>
-                    {t('updater:dialog.availableBody', { version: updateDialogState.version })}
-                  </p>
-                  
-                  <div className="flex gap-4 justify-center animate-fade-in-up" style={{ animationDelay: '0.4s', animationFillMode: 'both' }}>
-                    <button
-                      onClick={async () => {
-                        setUpdateDialogOpen(false);
-                        await new Promise(resolve => setTimeout(resolve, 200));
-                        try {
-                          const result = await UpdaterService.downloadUpdateSilent(false);
-                          if (result.success) {
-                            addToast(t('updater:downloadedShort'), 'success');
-                            const newState = await UpdaterService.getUpdateState();
-                            if (newState.download_ready) {
-                              setUpdateDialogState({ isDownloadReady: true, hasUpdateAvailable: false, version: newState.available_version });
-                              setTimeout(() => setUpdateDialogOpen(true), 500);
-                            }
-                          } else {
-                            addToast(t('updater:downloadFailed'), 'error');
+                      } catch (error) {
+                        addToast(t('updater:installFailed'), 'error');
+                      }
+                    },
+                  },
+                ]
+              : [
+                  {
+                    label: t('updater:dialog.download'),
+                    variant: 'primary',
+                    onClick: async () => {
+                      setUpdateDialogOpen(false);
+                      await new Promise(resolve => setTimeout(resolve, 200));
+                      try {
+                        const result = await UpdaterService.downloadUpdateSilent(false);
+                        if (result.success) {
+                          addToast(t('updater:downloadedShort'), 'success');
+                          const newState = await UpdaterService.getUpdateState();
+                          if (newState.download_ready) {
+                            setUpdateDialogState({ isDownloadReady: true, hasUpdateAvailable: false, version: newState.available_version });
+                            setTimeout(() => setUpdateDialogOpen(true), 500);
                           }
-                        } catch (error) {
+                        } else {
                           addToast(t('updater:downloadFailed'), 'error');
                         }
-                      }}
-                      className="px-8 py-3.5 rounded-xl font-semibold text-blue-100 transition-all duration-300 hover:scale-105 active:scale-95"
-                      style={{
-                        background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.2) 0%, rgba(37, 99, 235, 0.15) 100%)',
-                        backdropFilter: 'blur(16px)',
-                        WebkitBackdropFilter: 'blur(16px)',
-                        border: '1.5px solid rgba(59, 130, 246, 0.4)',
-                        boxShadow: '0 4px 20px rgba(59, 130, 246, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.1)'
-                      }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.background = 'linear-gradient(135deg, rgba(59, 130, 246, 0.3) 0%, rgba(37, 99, 235, 0.25) 100%)';
-                        e.currentTarget.style.boxShadow = '0 8px 30px rgba(59, 130, 246, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.15)';
-                        e.currentTarget.style.borderColor = 'rgba(59, 130, 246, 0.6)';
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.background = 'linear-gradient(135deg, rgba(59, 130, 246, 0.2) 0%, rgba(37, 99, 235, 0.15) 100%)';
-                        e.currentTarget.style.boxShadow = '0 4px 20px rgba(59, 130, 246, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.1)';
-                        e.currentTarget.style.borderColor = 'rgba(59, 130, 246, 0.4)';
-                      }}
-                    >
-                      {t('updater:dialog.download')}
-                    </button>
-                    
-                    <button
-                      onClick={() => setUpdateDialogOpen(false)}
-                      className="px-8 py-3.5 rounded-xl font-semibold text-gray-100 transition-all duration-300 hover:scale-105 active:scale-95"
-                      style={{
-                        background: 'linear-gradient(135deg, rgba(107, 114, 128, 0.15) 0%, rgba(75, 85, 99, 0.1) 100%)',
-                        backdropFilter: 'blur(16px)',
-                        WebkitBackdropFilter: 'blur(16px)',
-                        border: '1.5px solid rgba(107, 114, 128, 0.3)',
-                        boxShadow: '0 4px 20px rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.05)'
-                      }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.background = 'linear-gradient(135deg, rgba(107, 114, 128, 0.25) 0%, rgba(75, 85, 99, 0.2) 100%)';
-                        e.currentTarget.style.boxShadow = '0 8px 30px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.1)';
-                        e.currentTarget.style.borderColor = 'rgba(107, 114, 128, 0.5)';
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.background = 'linear-gradient(135deg, rgba(107, 114, 128, 0.15) 0%, rgba(75, 85, 99, 0.1) 100%)';
-                        e.currentTarget.style.boxShadow = '0 4px 20px rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.05)';
-                        e.currentTarget.style.borderColor = 'rgba(107, 114, 128, 0.3)';
-                      }}
-                    >
-                      {t('updater:dialog.later')}
-                    </button>
-                  </div>
-                </>
-              ) : null}
-            </div>
-          </div>
-        </div>
+                      } catch (error) {
+                        addToast(t('updater:downloadFailed'), 'error');
+                      }
+                    },
+                  },
+                  {
+                    label: t('updater:dialog.later'),
+                    variant: 'secondary',
+                    onClick: () => setUpdateDialogOpen(false),
+                  },
+                ]
+          }
+        />
       )}
 
       {/* Close confirmation dialog shown during a download */}
-      {closeDialogOpen && (
-          <div 
-          className="fixed inset-0 z-50 flex items-center justify-center animate-fade-in"
-            style={{
-            background: 'rgba(0, 0, 0, 0.6)',
-            backdropFilter: 'blur(8px)',
-            WebkitBackdropFilter: 'blur(8px)'
-          }}
-          onClick={(e) => {
-            if (e.target === e.currentTarget) {
+      <Modal
+        open={closeDialogOpen}
+        onClose={() => setCloseDialogOpen(false)}
+        accent="red"
+        icon={<TriangleAlert className="w-10 h-10 text-red-400" style={{ filter: 'drop-shadow(0 0 8px rgba(239, 68, 68, 0.6))' }} />}
+        title={t('common:closeDialog.title')}
+        description={t('common:closeDialog.body')}
+        actions={[
+          {
+            label: t('common:close'),
+            variant: 'danger',
+            onClick: async () => {
               setCloseDialogOpen(false);
-            }
-          }}
-        >
-          <div 
-            className="rounded-3xl p-10 max-w-md w-full mx-4 animate-slide-up"
-            style={{
-              background: 'linear-gradient(145deg, rgba(17, 24, 39, 0.98) 0%, rgba(31, 41, 55, 0.95) 100%)',
-              backdropFilter: 'blur(32px)',
-              WebkitBackdropFilter: 'blur(32px)',
-              boxShadow: '0 25px 80px -12px rgba(234, 88, 12, 0.5), 0 0 0 1px rgba(234, 88, 12, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.05)',
-              border: '1px solid rgba(234, 88, 12, 0.25)'
-            }}
-          >
-            <div className="text-center">
-              <div 
-                className="w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6 animate-scale-in"
-                style={{
-                  animationDelay: '0.1s',
-                  animationFillMode: 'both',
-                  background: 'radial-gradient(circle, rgba(234, 88, 12, 0.25) 0%, rgba(234, 88, 12, 0.1) 100%)',
-                  backdropFilter: 'blur(12px)',
-                  WebkitBackdropFilter: 'blur(12px)',
-                  border: '2px solid rgba(234, 88, 12, 0.4)',
-                  boxShadow: '0 0 30px rgba(234, 88, 12, 0.3), inset 0 0 20px rgba(234, 88, 12, 0.1)'
-                }}
-              >
-                <TriangleAlert
-                  className="w-10 h-10 text-orange-400"
-                  style={{ filter: 'drop-shadow(0 0 8px rgba(234, 88, 12, 0.6))' }}
-                />
-              </div>
-              
-              <h3 className="text-3xl font-bold text-white mb-3 animate-fade-in-up" style={{ animationDelay: '0.2s', animationFillMode: 'both' }}>
-                {t('common:closeDialog.title')}
-              </h3>
-              <p className="text-white/70 mb-8 leading-relaxed animate-fade-in-up" style={{ animationDelay: '0.3s', animationFillMode: 'both' }}>
-                {t('common:closeDialog.body')}
-              </p>
-              
-              <div className="flex gap-4 justify-center animate-fade-in-up" style={{ animationDelay: '0.4s', animationFillMode: 'both' }}>
-                <button
-                  onClick={async () => {
-                    setCloseDialogOpen(false);
-                    await new Promise(resolve => setTimeout(resolve, 200));
-                    await invoke('set_downloading_state', { isDownloading: false });
-                    const { getCurrentWindow } = await import('@tauri-apps/api/window');
-                    await getCurrentWindow().close();
-                  }}
-                  className="px-8 py-3.5 rounded-xl font-semibold text-red-100 transition-all duration-300 hover:scale-105 active:scale-95"
-                  style={{
-                    background: 'linear-gradient(135deg, rgba(239, 68, 68, 0.2) 0%, rgba(185, 28, 28, 0.15) 100%)',
-                    backdropFilter: 'blur(16px)',
-                    WebkitBackdropFilter: 'blur(16px)',
-                    border: '1.5px solid rgba(239, 68, 68, 0.4)',
-                    boxShadow: '0 4px 20px rgba(239, 68, 68, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.1)'
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.background = 'linear-gradient(135deg, rgba(239, 68, 68, 0.3) 0%, rgba(185, 28, 28, 0.25) 100%)';
-                    e.currentTarget.style.boxShadow = '0 8px 30px rgba(239, 68, 68, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.15)';
-                    e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.6)';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = 'linear-gradient(135deg, rgba(239, 68, 68, 0.2) 0%, rgba(185, 28, 28, 0.15) 100%)';
-                    e.currentTarget.style.boxShadow = '0 4px 20px rgba(239, 68, 68, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.1)';
-                    e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.4)';
-                  }}
-                >
-                  {t('common:close')}
-                </button>
-                
-                <button
-                  onClick={() => setCloseDialogOpen(false)}
-                  className="px-8 py-3.5 rounded-xl font-semibold text-gray-100 transition-all duration-300 hover:scale-105 active:scale-95"
-                  style={{
-                    background: 'linear-gradient(135deg, rgba(107, 114, 128, 0.15) 0%, rgba(75, 85, 99, 0.1) 100%)',
-                    backdropFilter: 'blur(16px)',
-                    WebkitBackdropFilter: 'blur(16px)',
-                    border: '1.5px solid rgba(107, 114, 128, 0.3)',
-                    boxShadow: '0 4px 20px rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.05)'
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.background = 'linear-gradient(135deg, rgba(107, 114, 128, 0.25) 0%, rgba(75, 85, 99, 0.2) 100%)';
-                    e.currentTarget.style.boxShadow = '0 8px 30px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.1)';
-                    e.currentTarget.style.borderColor = 'rgba(107, 114, 128, 0.5)';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = 'linear-gradient(135deg, rgba(107, 114, 128, 0.15) 0%, rgba(75, 85, 99, 0.1) 100%)';
-                    e.currentTarget.style.boxShadow = '0 4px 20px rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.05)';
-                    e.currentTarget.style.borderColor = 'rgba(107, 114, 128, 0.3)';
-                  }}
-                >
-                  {t('common:cancel')}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+              await new Promise(resolve => setTimeout(resolve, 200));
+              await invoke('set_downloading_state', { isDownloading: false });
+              const { getCurrentWindow } = await import('@tauri-apps/api/window');
+              await getCurrentWindow().close();
+            },
+          },
+          {
+            label: t('common:cancel'),
+            variant: 'secondary',
+            onClick: () => setCloseDialogOpen(false),
+          },
+        ]}
+      />
     </div>
   );
 }
