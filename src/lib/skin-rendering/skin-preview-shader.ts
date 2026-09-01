@@ -1,22 +1,23 @@
 // Ported 1:1 from Modrinth (packages/ui/src/components/skin/skin-preview-shader.ts)
 
-import * as THREE from 'three';
+import { Color, MeshStandardMaterial } from 'three';
+import type { Mesh, Object3D, WebGLProgramParametersWithUniforms } from 'three';
 
-type DamageFlashMaterial = THREE.MeshStandardMaterial & {
-  userData: THREE.MeshStandardMaterial['userData'] & {
-    damageFlashShader?: THREE.WebGLProgramParametersWithUniforms;
+type DamageFlashMaterial = MeshStandardMaterial & {
+  userData: MeshStandardMaterial['userData'] & {
+    damageFlashShader?: WebGLProgramParametersWithUniforms;
     damageFlashShaderInstalled?: boolean;
   };
 };
 
-const DAMAGE_FLASH_COLOR = new THREE.Color(0xbd2f2f);
+const DAMAGE_FLASH_COLOR = new Color(0xbd2f2f);
 const DAMAGE_FLASH_SHADER_KEY = 'skin-preview-damage-flash';
 
 export function createRadialSpotlightShader() {
   return {
     uniforms: {
-      innerColor: { value: new THREE.Color(0x000000) },
-      outerColor: { value: new THREE.Color(0xffffff) },
+      innerColor: { value: new Color(0x000000) },
+      outerColor: { value: new Color(0xffffff) },
       innerOpacity: { value: 0.3 },
       outerOpacity: { value: 0.0 },
       falloffPower: { value: 1.2 },
@@ -58,7 +59,7 @@ export function createRadialSpotlightShader() {
   };
 }
 
-function installDamageFlashShader(material: THREE.MeshStandardMaterial, intensity: number) {
+function installDamageFlashShader(material: MeshStandardMaterial, intensity: number) {
   const damageMaterial = material as DamageFlashMaterial;
 
   if (damageMaterial.userData.damageFlashShaderInstalled) {
@@ -91,7 +92,7 @@ function installDamageFlashShader(material: THREE.MeshStandardMaterial, intensit
   material.needsUpdate = true;
 }
 
-function syncDamageFlashMaterial(material: THREE.MeshStandardMaterial, intensity: number) {
+function syncDamageFlashMaterial(material: MeshStandardMaterial, intensity: number) {
   installDamageFlashShader(material, intensity);
 
   const shader = (material as DamageFlashMaterial).userData.damageFlashShader;
@@ -100,16 +101,16 @@ function syncDamageFlashMaterial(material: THREE.MeshStandardMaterial, intensity
   }
 }
 
-export function syncDamageFlashShader(scene: THREE.Object3D | null, intensity: number) {
+export function syncDamageFlashShader(scene: Object3D | null, intensity: number) {
   if (!scene) return;
 
   scene.traverse((object) => {
-    const mesh = object as THREE.Mesh;
+    const mesh = object as Mesh;
     if (!mesh.isMesh || !mesh.material) return;
 
     const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
     materials.forEach((material) => {
-      if (!(material instanceof THREE.MeshStandardMaterial) || material.name === 'cape') return;
+      if (!(material instanceof MeshStandardMaterial) || material.name === 'cape') return;
 
       syncDamageFlashMaterial(material, intensity);
     });
