@@ -435,16 +435,16 @@ pub async fn list_skin_files() -> Result<Vec<String>, String> {
     Ok(skin_ids)
 }
 
-/// Update package already downloaded and waiting to be installed
+/// Update already downloaded and cached, ready to install without a re-check.
 pub struct PendingUpdate {
-    pub version: String,
+    pub update: tauri_plugin_updater::Update,
     pub bytes: Vec<u8>,
 }
 
 pub type PendingUpdateState = Arc<Mutex<Option<PendingUpdate>>>;
 
 #[tauri::command]
-pub async fn check_for_updates(app_handle: AppHandle) -> Result<String, String> {
+pub async fn check_for_updates(app_handle: AppHandle, pending: State<'_, PendingUpdateState>) -> Result<String, String> {
     use tauri_plugin_updater::UpdaterExt;
     let updater = app_handle.updater().map_err(|e| format!("Failed to get updater: {}", e))?;
     let mut state = load_update_state().await;
@@ -454,6 +454,12 @@ pub async fn check_for_updates(app_handle: AppHandle) -> Result<String, String> 
     match updater.check().await {
         Ok(update) => {
             if let Some(update) = update {
+                // Drop a cached download if it's for a different version.
+                if let Ok(mut slot) = pending.lock() {
+                    if slot.as_ref().is_some_and(|p| p.update.version != update.version) {
+                        *slot = None;
+                    }
+                }
                 state.available_version = Some(update.version.clone());
                 state.downloaded = false;
                 state.download_ready = false;
@@ -479,29 +485,29 @@ pub async fn check_for_updates(app_handle: AppHandle) -> Result<String, String> 
 #[tauri::command]
 pub async fn install_update(app_handle: AppHandle, pending: State<'_, PendingUpdateState>) -> Result<UpdateInstallOutcome, String> {
     use tauri_plugin_updater::UpdaterExt;
-    let updater = app_handle.updater().map_err(|e| format!("Failed to get updater: {}", e))?;
 
-    let update = match updater.check().await {
-        Ok(Some(update)) => update,
-        Ok(None) => {
-            // Nothing to install: the stored state was pointing at a version
-            // that is already installed, so drop it instead of asking again.
-            clear_update_state().await?;
-            return Ok(UpdateInstallOutcome {
-                installed: false,
-                message: "No update available to install".to_string(),
-            });
+    // Reuse the `Update` that downloaded `bytes` instead of re-checking.
+    let cached = pending.lock().ok().and_then(|mut slot| slot.take());
+
+    let (update, cached_bytes) = match cached {
+        Some(p) => (p.update, Some(p.bytes)),
+        None => {
+            let updater = app_handle.updater().map_err(|e| format!("Failed to get updater: {}", e))?;
+            match updater.check().await {
+                Ok(Some(update)) => (update, None),
+                Ok(None) => {
+                    // Nothing to install: the stored state was pointing at a version
+                    // that is already installed, so drop it instead of asking again.
+                    clear_update_state().await?;
+                    return Ok(UpdateInstallOutcome {
+                        installed: false,
+                        message: "No update available to install".to_string(),
+                    });
+                }
+                Err(e) => return Err(format!("Failed to check for updates: {}", e)),
+            }
         }
-        Err(e) => return Err(format!("Failed to check for updates: {}", e)),
     };
-
-    let cached_bytes = pending
-        .lock()
-        .ok()
-        .and_then(|mut slot| match slot.as_ref() {
-            Some(p) if p.version == update.version => slot.take().map(|p| p.bytes),
-            _ => None,
-        });
 
     app_handle.emit("update-install-start", ()).unwrap_or_default();
 
@@ -766,7 +772,7 @@ pub async fn download_update_silent(
             ).await.map_err(|e| format!("Failed to download update: {}", e))?;
 
             if let Ok(mut slot) = pending.lock() {
-                *slot = Some(PendingUpdate { version: update.version.clone(), bytes });
+                *slot = Some(PendingUpdate { update: update.clone(), bytes });
             }
 
             // Update the state to indicate that the download is ready
