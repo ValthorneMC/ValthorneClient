@@ -9,7 +9,21 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Rotate3d } from 'lucide-react';
-import * as THREE from 'three';
+import {
+  WebGLRenderer,
+  Scene,
+  PerspectiveCamera,
+  Group,
+  Mesh,
+  SRGBColorSpace,
+  NoToneMapping,
+  AmbientLight,
+  DirectionalLight,
+  CircleGeometry,
+  ShaderMaterial,
+  Clock,
+} from 'three';
+import type { Object3D } from 'three';
 
 import {
   useSkinPreviewAnimation,
@@ -98,13 +112,13 @@ export const SkinPreviewRenderer: React.FC<SkinPreviewRendererProps> = ({
     return () => observer.disconnect();
   }, []);
 
-  const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
-  const threeSceneRef = useRef<THREE.Scene | null>(null);
-  const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
-  const modelGroupOuterRef = useRef<THREE.Group | null>(null);
-  const modelGroupInnerRef = useRef<THREE.Group | null>(null);
-  const spotlightMeshRef = useRef<THREE.Mesh | null>(null);
-  const currentModelChildRef = useRef<THREE.Object3D | null>(null);
+  const rendererRef = useRef<WebGLRenderer | null>(null);
+  const threeSceneRef = useRef<Scene | null>(null);
+  const cameraRef = useRef<PerspectiveCamera | null>(null);
+  const modelGroupOuterRef = useRef<Group | null>(null);
+  const modelGroupInnerRef = useRef<Group | null>(null);
+  const spotlightMeshRef = useRef<Mesh | null>(null);
+  const currentModelChildRef = useRef<Object3D | null>(null);
 
   const selectedModelSrc = variant === 'SLIM' ? SlimPlayerModel : ClassicPlayerModel;
 
@@ -165,44 +179,44 @@ export const SkinPreviewRenderer: React.FC<SkinPreviewRendererProps> = ({
   useEffect(() => {
     if (!shouldMount || !canvasRef.current) return;
 
-    const renderer = new THREE.WebGLRenderer({
+    const renderer = new WebGLRenderer({
       canvas: canvasRef.current,
       alpha: true,
       antialias: true,
     });
-    renderer.outputColorSpace = THREE.SRGBColorSpace;
-    renderer.toneMapping = THREE.NoToneMapping;
+    renderer.outputColorSpace = SRGBColorSpace;
+    renderer.toneMapping = NoToneMapping;
     renderer.toneMappingExposure = 10.0;
     rendererRef.current = renderer;
 
-    const scene3 = new THREE.Scene();
+    const scene3 = new Scene();
     threeSceneRef.current = scene3;
 
-    const camera = new THREE.PerspectiveCamera(35, 1, 0.05, 1000);
+    const camera = new PerspectiveCamera(35, 1, 0.05, 1000);
     cameraRef.current = camera;
 
-    const ambientLight = new THREE.AmbientLight(0xffffff, 2);
-    const directionalLight = new THREE.DirectionalLight(0xffffff, 1.2);
+    const ambientLight = new AmbientLight(0xffffff, 2);
+    const directionalLight = new DirectionalLight(0xffffff, 1.2);
     directionalLight.position.set(-3, 4, -2);
     scene3.add(ambientLight, directionalLight);
 
-    const outerGroup = new THREE.Group();
-    const innerGroup = new THREE.Group();
+    const outerGroup = new Group();
+    const innerGroup = new Group();
     outerGroup.add(innerGroup);
     scene3.add(outerGroup);
     modelGroupOuterRef.current = outerGroup;
     modelGroupInnerRef.current = innerGroup;
 
-    const spotlightGeometry = new THREE.CircleGeometry(1, 128);
-    const spotlightMaterial = new THREE.ShaderMaterial(radialSpotlightShader);
-    const spotlightMesh = new THREE.Mesh(spotlightGeometry, spotlightMaterial);
+    const spotlightGeometry = new CircleGeometry(1, 128);
+    const spotlightMaterial = new ShaderMaterial(radialSpotlightShader);
+    const spotlightMesh = new Mesh(spotlightGeometry, spotlightMaterial);
     spotlightMesh.rotation.set(-Math.PI / 2, 0, 0);
     scene3.add(spotlightMesh);
     spotlightMeshRef.current = spotlightMesh;
 
     let disposed = false;
     let rafId = 0;
-    const clock = new THREE.Clock();
+    const clock = new Clock();
 
     const renderLoop = () => {
       if (disposed) return;

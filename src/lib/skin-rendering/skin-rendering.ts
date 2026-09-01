@@ -2,21 +2,22 @@
 // Framework-agnostic Three.js utilities for loading and applying Minecraft skin/cape
 // textures onto the classic/slim player GLTF models.
 
-import * as THREE from 'three';
+import { TextureLoader, SRGBColorSpace, NearestFilter, FrontSide, DoubleSide, MeshStandardMaterial, CanvasTexture } from 'three';
+import type { ColorSpace, MagnificationTextureFilter, MinificationTextureFilter, Texture, Side, Object3D, Mesh, Material } from 'three';
 import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 
 interface SkinRendererConfig {
-  textureColorSpace?: THREE.ColorSpace;
+  textureColorSpace?: ColorSpace;
   textureFlipY?: boolean;
-  textureMagFilter?: THREE.MagnificationTextureFilter;
-  textureMinFilter?: THREE.MinificationTextureFilter;
+  textureMagFilter?: MagnificationTextureFilter;
+  textureMinFilter?: MinificationTextureFilter;
 }
 
 const modelCache: Map<string, GLTF> = new Map();
 const modelPromiseCache: Map<string, Promise<GLTF>> = new Map();
-const textureCache: Map<string, THREE.Texture> = new Map();
-const texturePromiseCache: Map<string, Promise<THREE.Texture>> = new Map();
+const textureCache: Map<string, Texture> = new Map();
+const texturePromiseCache: Map<string, Promise<Texture>> = new Map();
 
 export async function loadModel(modelUrl: string): Promise<GLTF> {
   if (modelCache.has(modelUrl)) {
@@ -49,7 +50,7 @@ export async function loadModel(modelUrl: string): Promise<GLTF> {
 export async function loadTexture(
   textureUrl: string,
   config: SkinRendererConfig = {},
-): Promise<THREE.Texture> {
+): Promise<Texture> {
   const cacheKey = `${textureUrl}_${JSON.stringify(config)}`;
 
   if (textureCache.has(cacheKey)) {
@@ -60,15 +61,15 @@ export async function loadTexture(
     return texturePromiseCache.get(cacheKey)!;
   }
 
-  const textureLoader = new THREE.TextureLoader();
-  const promise = new Promise<THREE.Texture>((resolve, reject) => {
+  const textureLoader = new TextureLoader();
+  const promise = new Promise<Texture>((resolve, reject) => {
     textureLoader.load(
       textureUrl,
       (texture) => {
-        texture.colorSpace = config.textureColorSpace ?? THREE.SRGBColorSpace;
+        texture.colorSpace = config.textureColorSpace ?? SRGBColorSpace;
         texture.flipY = config.textureFlipY ?? false;
-        texture.magFilter = config.textureMagFilter ?? THREE.NearestFilter;
-        texture.minFilter = config.textureMinFilter ?? THREE.NearestFilter;
+        texture.magFilter = config.textureMagFilter ?? NearestFilter;
+        texture.minFilter = config.textureMinFilter ?? NearestFilter;
 
         textureCache.set(cacheKey, texture);
         resolve(texture);
@@ -94,7 +95,7 @@ export function releaseTexture(textureUrl: string): void {
   }
 }
 
-function applyMap(mat: THREE.MeshStandardMaterial, texture: THREE.Texture | null): boolean {
+function applyMap(mat: MeshStandardMaterial, texture: Texture | null): boolean {
   const hadMap = mat.map !== null;
   const hasMap = texture !== null;
 
@@ -106,11 +107,11 @@ function applyMap(mat: THREE.MeshStandardMaterial, texture: THREE.Texture | null
 }
 
 function setShaderMaterialProperties(
-  mat: THREE.MeshStandardMaterial,
+  mat: MeshStandardMaterial,
   properties: {
     alphaTest: number;
     flatShading: boolean;
-    side: THREE.Side;
+    side: Side;
     toneMapped: boolean;
     transparent?: boolean;
   },
@@ -145,7 +146,7 @@ function setShaderMaterialProperties(
   return needsUpdate;
 }
 
-function setCommonMaterialProperties(mat: THREE.MeshStandardMaterial): void {
+function setCommonMaterialProperties(mat: MeshStandardMaterial): void {
   if (mat.metalness !== 0) {
     mat.metalness = 0;
   }
@@ -167,21 +168,21 @@ function setCommonMaterialProperties(mat: THREE.MeshStandardMaterial): void {
   }
 }
 
-export function applyTexture(model: THREE.Object3D, texture: THREE.Texture): void {
+export function applyTexture(model: Object3D, texture: Texture): void {
   model.traverse((child) => {
-    if ((child as THREE.Mesh).isMesh) {
-      const mesh = child as THREE.Mesh;
+    if ((child as Mesh).isMesh) {
+      const mesh = child as Mesh;
       const isSkinLayer = mesh.name.endsWith('_Layer');
       const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
 
-      materials.forEach((mat: THREE.Material) => {
-        if (mat instanceof THREE.MeshStandardMaterial) {
+      materials.forEach((mat: Material) => {
+        if (mat instanceof MeshStandardMaterial) {
           if (mat.name !== 'cape') {
             const mapNeedsUpdate = applyMap(mat, texture);
             const propertiesNeedUpdate = setShaderMaterialProperties(mat, {
               alphaTest: 0.1,
               flatShading: true,
-              side: THREE.FrontSide,
+              side: FrontSide,
               toneMapped: false,
               transparent: isSkinLayer,
             });
@@ -199,24 +200,24 @@ export function applyTexture(model: THREE.Object3D, texture: THREE.Texture): voi
 }
 
 export function applyCapeTexture(
-  model: THREE.Object3D,
-  texture: THREE.Texture | null,
-  transparentTexture?: THREE.Texture,
+  model: Object3D,
+  texture: Texture | null,
+  transparentTexture?: Texture,
 ): void {
   model.traverse((child) => {
-    if ((child as THREE.Mesh).isMesh) {
-      const mesh = child as THREE.Mesh;
+    if ((child as Mesh).isMesh) {
+      const mesh = child as Mesh;
       const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
 
-      materials.forEach((mat: THREE.Material) => {
-        if (mat instanceof THREE.MeshStandardMaterial) {
+      materials.forEach((mat: Material) => {
+        if (mat instanceof MeshStandardMaterial) {
           if (mat.name === 'cape') {
             const nextMap = texture || transparentTexture || null;
             const mapNeedsUpdate = applyMap(mat, nextMap);
             const propertiesNeedUpdate = setShaderMaterialProperties(mat, {
               alphaTest: 0.1,
               flatShading: true,
-              side: THREE.DoubleSide,
+              side: DoubleSide,
               toneMapped: false,
               transparent: !texture || !!transparentTexture,
             });
@@ -235,18 +236,18 @@ export function applyCapeTexture(
   });
 }
 
-export function createTransparentTexture(): THREE.Texture {
+export function createTransparentTexture(): Texture {
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = 1;
   const ctx = canvas.getContext('2d') as CanvasRenderingContext2D;
   ctx.clearRect(0, 0, 1, 1);
 
-  const texture = new THREE.CanvasTexture(canvas);
+  const texture = new CanvasTexture(canvas);
   texture.needsUpdate = true;
-  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.colorSpace = SRGBColorSpace;
   texture.flipY = false;
-  texture.magFilter = THREE.NearestFilter;
-  texture.minFilter = THREE.NearestFilter;
+  texture.magFilter = NearestFilter;
+  texture.minFilter = NearestFilter;
 
   return texture;
 }

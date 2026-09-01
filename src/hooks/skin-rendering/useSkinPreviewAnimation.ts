@@ -3,14 +3,15 @@
 // via update(delta) from the render loop, instead of Vue's reactive refs driving re-renders.
 
 import { useCallback, useEffect, useRef } from 'react';
-import * as THREE from 'three';
+import { AnimationMixer, Clock, LoopRepeat, LoopOnce } from 'three';
+import type { AnimationMixerEventMap, AnimationAction, Object3D, AnimationClip } from 'three';
 
 import type { SkinPreviewAnimationConfig } from '@/lib/skin-rendering/types';
 
 type AnimationFinishedListener = (
-  event: THREE.AnimationMixerEventMap['finished'] & {
+  event: AnimationMixerEventMap['finished'] & {
     readonly type: 'finished';
-    readonly target: THREE.AnimationMixer;
+    readonly target: AnimationMixer;
   },
 ) => void;
 
@@ -41,9 +42,9 @@ interface SkinPreviewAnimationImpulse {
 }
 
 export function useSkinPreviewAnimation(animationConfig: SkinPreviewAnimationConfig | undefined) {
-  const mixerRef = useRef<THREE.AnimationMixer | null>(null);
-  const actionsRef = useRef<Record<string, THREE.AnimationAction>>({});
-  const clockRef = useRef(new THREE.Clock());
+  const mixerRef = useRef<AnimationMixer | null>(null);
+  const actionsRef = useRef<Record<string, AnimationAction>>({});
+  const clockRef = useRef(new Clock());
   const currentAnimationRef = useRef<string>('');
   const randomAnimationTimerRef = useRef<number | null>(null);
   const lastRandomAnimationRef = useRef<string>('');
@@ -125,9 +126,9 @@ export function useSkinPreviewAnimation(animationConfig: SkinPreviewAnimationCon
       action.reset();
 
       if (name === baseAnimation()) {
-        action.setLoop(THREE.LoopRepeat, Infinity);
+        action.setLoop(LoopRepeat, Infinity);
       } else {
-        action.setLoop(THREE.LoopOnce, 1);
+        action.setLoop(LoopOnce, 1);
         action.clampWhenFinished = true;
 
         const onFinished: AnimationFinishedListener = (event) => {
@@ -182,7 +183,7 @@ export function useSkinPreviewAnimation(animationConfig: SkinPreviewAnimationCon
       }
 
       action.reset();
-      action.setLoop(THREE.LoopOnce, 1);
+      action.setLoop(LoopOnce, 1);
       action.clampWhenFinished = true;
       action.setEffectiveTimeScale(1);
       action.fadeIn(transitionDuration());
@@ -248,12 +249,12 @@ export function useSkinPreviewAnimation(animationConfig: SkinPreviewAnimationCon
   }, [playRandomAnimation]);
 
   const initializeAnimations = useCallback(
-    (loadedScene: THREE.Object3D, clips: THREE.AnimationClip[]) => {
+    (loadedScene: Object3D, clips: AnimationClip[]) => {
       if (!clips || clips.length === 0) {
         return;
       }
 
-      mixerRef.current = new THREE.AnimationMixer(loadedScene);
+      mixerRef.current = new AnimationMixer(loadedScene);
       clockRef.current.start();
       actionsRef.current = {};
 
@@ -263,19 +264,19 @@ export function useSkinPreviewAnimation(animationConfig: SkinPreviewAnimationCon
         }
 
         const action = mixerRef.current!.clipAction(clip);
-        action.setLoop(THREE.LoopOnce, 1);
+        action.setLoop(LoopOnce, 1);
         action.clampWhenFinished = true;
         actionsRef.current[clip.name] = action;
       });
 
       if (baseAnimation() && actionsRef.current[baseAnimation()]) {
-        actionsRef.current[baseAnimation()].setLoop(THREE.LoopRepeat, Infinity);
+        actionsRef.current[baseAnimation()].setLoop(LoopRepeat, Infinity);
         playAnimation(baseAnimation(), true);
         setupRandomAnimationLoop();
       } else {
         const firstAnimationName = Object.keys(actionsRef.current)[0];
         if (firstAnimationName) {
-          actionsRef.current[firstAnimationName].setLoop(THREE.LoopRepeat, Infinity);
+          actionsRef.current[firstAnimationName].setLoop(LoopRepeat, Infinity);
           playAnimation(firstAnimationName, true);
         }
       }
@@ -315,7 +316,7 @@ export function useSkinPreviewAnimation(animationConfig: SkinPreviewAnimationCon
   }, [addClickImpulse, playInteractAnimation]);
 
   const cleanupAnimationState = useCallback(
-    (root: THREE.Object3D | null) => {
+    (root: Object3D | null) => {
       clearRandomAnimationTimer();
 
       const currentMixer = mixerRef.current;

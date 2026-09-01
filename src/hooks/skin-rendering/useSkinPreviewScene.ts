@@ -4,7 +4,8 @@
 // since this project does not use a Vue-only Three.js reconciler.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import * as THREE from 'three';
+import { MeshStandardMaterial, Box3, Vector3 } from 'three';
+import type { Mesh, Object3D, Material, AnimationClip, Texture } from 'three';
 import { clone as cloneSkeleton } from 'three/examples/jsm/utils/SkeletonUtils.js';
 
 import {
@@ -18,13 +19,13 @@ import type { SkinPreviewTuple } from '@/lib/skin-rendering/types';
 
 const SKIN_LAYER_DEPTH_BIAS = -1;
 
-function configureSkinPreviewMesh(mesh: THREE.Mesh) {
+function configureSkinPreviewMesh(mesh: Mesh) {
   const isSkinLayer = mesh.name.endsWith('_Layer');
   mesh.renderOrder = 0;
 
   const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
   materials.forEach((material) => {
-    if (!(material instanceof THREE.MeshStandardMaterial) || material.name === 'cape') return;
+    if (!(material instanceof MeshStandardMaterial) || material.name === 'cape') return;
 
     material.transparent = isSkinLayer;
     material.alphaTest = 0.1;
@@ -37,11 +38,11 @@ function configureSkinPreviewMesh(mesh: THREE.Mesh) {
   });
 }
 
-function cloneSceneForRenderer(source: THREE.Object3D) {
+function cloneSceneForRenderer(source: Object3D) {
   const cloned = cloneSkeleton(source);
 
   cloned.traverse((object) => {
-    const mesh = object as THREE.Mesh;
+    const mesh = object as Mesh;
     if (!mesh.isMesh || !mesh.material) return;
 
     mesh.material = Array.isArray(mesh.material)
@@ -54,13 +55,13 @@ function cloneSceneForRenderer(source: THREE.Object3D) {
   return cloned;
 }
 
-function disposeSceneMaterials(root: THREE.Object3D | null) {
+function disposeSceneMaterials(root: Object3D | null) {
   if (!root) return;
 
-  const materials = new Set<THREE.Material>();
+  const materials = new Set<Material>();
 
   root.traverse((object) => {
-    const mesh = object as THREE.Mesh;
+    const mesh = object as Mesh;
     if (!mesh.isMesh || !mesh.material) return;
 
     const meshMaterials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
@@ -70,15 +71,15 @@ function disposeSceneMaterials(root: THREE.Object3D | null) {
   materials.forEach((material) => material.dispose());
 }
 
-function getVisibleMeshBox(root: THREE.Object3D): THREE.Box3 | null {
+function getVisibleMeshBox(root: Object3D): Box3 | null {
   root.updateWorldMatrix(true, true);
 
-  const result = new THREE.Box3();
-  const meshBox = new THREE.Box3();
+  const result = new Box3();
+  const meshBox = new Box3();
   let found = false;
 
   root.traverse((object) => {
-    const mesh = object as THREE.Mesh;
+    const mesh = object as Mesh;
     if (!mesh.isMesh || !mesh.geometry || mesh.visible === false) return;
 
     const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
@@ -108,11 +109,11 @@ export function useSkinPreviewScene({
   selectedModelSrc: string;
   textureSrc: string;
   capeSrc: string | undefined;
-  initializeAnimations: (loadedScene: THREE.Object3D, clips: THREE.AnimationClip[]) => void;
-  cleanupAnimationState: (root: THREE.Object3D | null) => void;
+  initializeAnimations: (loadedScene: Object3D, clips: AnimationClip[]) => void;
+  cleanupAnimationState: (root: Object3D | null) => void;
 }) {
-  const [scene, setScene] = useState<THREE.Object3D | null>(null);
-  const sceneRef = useRef<THREE.Object3D | null>(null);
+  const [scene, setScene] = useState<Object3D | null>(null);
+  const sceneRef = useRef<Object3D | null>(null);
   const [isModelLoaded, setIsModelLoaded] = useState(false);
   const [isTextureLoaded, setIsTextureLoaded] = useState(false);
   const [modelCenter, setModelCenter] = useState<SkinPreviewTuple>([0, 1, 0]);
@@ -122,9 +123,9 @@ export function useSkinPreviewScene({
   const loadedTextureSrcRef = useRef<string | undefined>(undefined);
   const loadedCapeSrcRef = useRef<string | undefined>(undefined);
   const lastCapeSrcRef = useRef<string | undefined>(undefined);
-  const textureRef = useRef<THREE.Texture | null>(null);
-  const capeTextureRef = useRef<THREE.Texture | null>(null);
-  const transparentTextureRef = useRef<THREE.Texture | null>(null);
+  const textureRef = useRef<Texture | null>(null);
+  const capeTextureRef = useRef<Texture | null>(null);
+  const transparentTextureRef = useRef<Texture | null>(null);
 
   const modelLoadVersionRef = useRef(0);
   const textureLoadVersionRef = useRef(0);
@@ -149,8 +150,8 @@ export function useSkinPreviewScene({
       return;
     }
 
-    const center = new THREE.Vector3();
-    const size = new THREE.Vector3();
+    const center = new Vector3();
+    const size = new Vector3();
 
     box.getCenter(center);
     box.getSize(size);
@@ -182,7 +183,7 @@ export function useSkinPreviewScene({
     );
   }, [selectedModelSrc, capeSrc]);
 
-  const loadAndApplyTexture = useCallback(async (src: string): Promise<THREE.Texture | null> => {
+  const loadAndApplyTexture = useCallback(async (src: string): Promise<Texture | null> => {
     if (!src) return null;
 
     try {
@@ -239,7 +240,7 @@ export function useSkinPreviewScene({
       const loadVersion = ++capeLoadVersionRef.current;
       lastCapeSrcRef.current = src;
 
-      let loadedCapeTexture: THREE.Texture | null = null;
+      let loadedCapeTexture: Texture | null = null;
       if (src) {
         loadedCapeTexture = await loadAndApplyTexture(src);
       }

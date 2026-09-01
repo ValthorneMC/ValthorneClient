@@ -27,6 +27,7 @@ import {
 import { UpdaterService } from '@/services/updater';
 import type { UpdateState, UpdateProgress } from '@/types/updater';
 import { logger } from '@/utils/logger';
+import { Modal } from '@/components/ui/Modal';
 
 interface SettingsViewProps {
   addToast?: (message: string, type?: 'success' | 'error' | 'info', duration?: number) => void;
@@ -964,81 +965,26 @@ const SettingsView: React.FC<SettingsViewProps> = ({ addToast, scrollToUpdates =
       </div>
 
       {/* Confirmation dialog for installing the update */}
-      {installConfirmOpen && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center">
-          <div 
-            className="rounded-2xl border-2 border-orange-400/60 p-8 max-w-md w-full mx-4 shadow-2xl"
-            style={{
-              background: 'linear-gradient(135deg, rgba(234, 88, 12, 0.15) 0%, rgba(0, 0, 0, 0.7) 100%)',
-              backdropFilter: 'blur(20px)',
-              WebkitBackdropFilter: 'blur(20px)',
-              boxShadow: '0 8px 32px 0 rgba(0, 0, 0, 0.6)'
-            }}
-          >
-            <div className="text-center">
-              <div className="w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4"
-                style={{
-                  background: 'linear-gradient(135deg, rgba(234, 88, 12, 0.2) 0%, rgba(0, 0, 0, 0.4) 100%)',
-                  backdropFilter: 'blur(10px)',
-                  WebkitBackdropFilter: 'blur(10px)',
-                  border: '2px solid rgba(234, 88, 12, 0.4)'
-                }}
-              >
-                <TriangleAlert className="w-8 h-8 text-orange-300" />
-              </div>
-              
-              <h3 className="text-2xl font-bold text-white mb-2">{t('updates.confirmTitle')}</h3>
-              <p className="text-white/80 mb-6">
-                {t('updates.confirmBody')}
-              </p>
-              
-              <div className="flex gap-3 justify-center">
-                <button
-                  onClick={handleConfirmInstall}
-                  className="px-6 py-3 rounded-xl border-2 border-green-400/60 text-green-200 transition-all duration-200 font-medium"
-                  style={{
-                    background: 'linear-gradient(135deg, rgba(34, 197, 94, 0.15) 0%, rgba(0, 0, 0, 0.5) 100%)',
-                    backdropFilter: 'blur(20px)',
-                    WebkitBackdropFilter: 'blur(20px)',
-                    boxShadow: '0 4px 16px 0 rgba(0, 0, 0, 0.4)'
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.background = 'linear-gradient(135deg, rgba(34, 197, 94, 0.25) 0%, rgba(0, 0, 0, 0.6) 100%)';
-                    e.currentTarget.style.boxShadow = '0 6px 20px 0 rgba(34, 197, 94, 0.3)';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = 'linear-gradient(135deg, rgba(34, 197, 94, 0.15) 0%, rgba(0, 0, 0, 0.5) 100%)';
-                    e.currentTarget.style.boxShadow = '0 4px 16px 0 rgba(0, 0, 0, 0.4)';
-                  }}
-                >
-                  {t('updates.confirmInstall')}
-                </button>
-                
-                <button
-                  onClick={() => setInstallConfirmOpen(false)}
-                  className="px-6 py-3 rounded-xl border-2 border-gray-400/60 text-gray-200 transition-all duration-200 font-medium"
-                  style={{
-                    background: 'linear-gradient(135deg, rgba(156, 163, 175, 0.15) 0%, rgba(0, 0, 0, 0.5) 100%)',
-                    backdropFilter: 'blur(20px)',
-                    WebkitBackdropFilter: 'blur(20px)',
-                    boxShadow: '0 4px 16px 0 rgba(0, 0, 0, 0.4)'
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.background = 'linear-gradient(135deg, rgba(156, 163, 175, 0.25) 0%, rgba(0, 0, 0, 0.6) 100%)';
-                    e.currentTarget.style.boxShadow = '0 6px 20px 0 rgba(156, 163, 175, 0.3)';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = 'linear-gradient(135deg, rgba(156, 163, 175, 0.15) 0%, rgba(0, 0, 0, 0.5) 100%)';
-                    e.currentTarget.style.boxShadow = '0 4px 16px 0 rgba(0, 0, 0, 0.4)';
-                  }}
-                >
-                  {tCommon('cancel')}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      <Modal
+        open={installConfirmOpen}
+        onClose={() => setInstallConfirmOpen(false)}
+        accent="gold"
+        icon={<TriangleAlert className="w-8 h-8 text-[#e8cf7a]" />}
+        title={t('updates.confirmTitle')}
+        description={t('updates.confirmBody')}
+        actions={[
+          {
+            label: t('updates.confirmInstall'),
+            variant: 'primary',
+            onClick: handleConfirmInstall,
+          },
+          {
+            label: tCommon('cancel'),
+            variant: 'secondary',
+            onClick: () => setInstallConfirmOpen(false),
+          },
+        ]}
+      />
 
        <style dangerouslySetInnerHTML={{
          __html: `

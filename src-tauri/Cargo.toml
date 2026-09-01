@@ -1,6 +1,6 @@
 [package]
 name = "valthorneclient"
-version = "1.1.7"
+version = "1.1.8"
 description = "Official client for the Valthorne Minecraft server."
 authors = ["Valthorne"]
 edition = "2024"
@@ -13,6 +13,13 @@ edition = "2024"
 # This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
 name = "valthorneclient_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"
 
 [build-dependencies]
 tauri-build = { version = "2.6", features = [] }
@@ -29,24 +36,23 @@ futures-util = "0.3"
 url = "2.4"
 tauri-plugin-prevent-default = "5.0.0"
 tauri-plugin-updater = "2.0"
-zip = "8.0"
+zip = { version = "8.0", default-features = false, features = ["deflate"] }
 tar = "0.4"
 flate2 = "1.0"
 sha2 = "0.11"
 md5 = "0.8"
 walkdir = "2.5"
 num_cpus = "1.16"
-sysinfo = "0.39"
+sysinfo = { version = "0.39", default-features = false, features = ["system"] }
 dirs = "6.0"
 chrono = { version = "0.4", features = ["serde"] }
 dotenv = "0.15"
-log = "0.4"
-env_logger = "0.11"
+log = { version = "0.4", features = ["std"] }
 tauri-plugin-sql = { version = "2.0.0", features = ["sqlite"] }
 tauri-plugin-notification = "2.0"
 tauri-plugin-global-shortcut = "2.0"
 tauri-plugin-os = "2.0"
-sqlx = { version = "0.8", default-features = false, features = ["sqlite", "runtime-tokio", "derive"] }
+sqlx = { version = "0.8", default-features = false, features = ["sqlite", "runtime-tokio", "macros"] }
 rand = "0.10"
 glob = "0.3"
 dunce = "1.0"

@@ -4,7 +4,7 @@
 // the model correctly) is preserved 1:1.
 
 import { useCallback, useEffect, useState } from 'react';
-import * as THREE from 'three';
+import { MathUtils } from 'three';
 
 import type {
   SkinPreviewFitLock,
@@ -120,7 +120,7 @@ export function useSkinPreviewFit({
     const halfHeight = sizeY / 2;
 
     const resolvedFov = fov ?? preset.fov;
-    const verticalFov = THREE.MathUtils.degToRad(resolvedFov);
+    const verticalFov = MathUtils.degToRad(resolvedFov);
     const horizontalFov = 2 * Math.atan(Math.tan(verticalFov / 2) * aspect);
 
     const paddedHalfWidth = halfWidth * (width / usableWidth);
