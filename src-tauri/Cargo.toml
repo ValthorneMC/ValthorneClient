@@ -44,7 +44,7 @@ md5 = "0.8"
 walkdir = "2.5"
 num_cpus = "1.16"
 sysinfo = { version = "0.39", default-features = false, features = ["system"] }
-dirs = "6.0"
+dirs = "7.0"
 chrono = { version = "0.4", features = ["serde"] }
 dotenv = "0.15"
 log = { version = "0.4", features = ["std"] }
