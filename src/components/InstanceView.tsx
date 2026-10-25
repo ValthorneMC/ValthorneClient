@@ -38,7 +38,6 @@ interface DistributionManifest {
 interface InstanceViewProps {
   instanceId: string;
   distribution: DistributionManifest;
-  distributionBaseUrl: string;
   onLaunch: (instance: any) => Promise<void>;
   isJavaInstalling?: boolean;
 }
@@ -49,7 +48,6 @@ const videoCache = new Map<string, { assetUrl: string; loaded: boolean }>();
 const InstanceView: React.FC<InstanceViewProps> = ({
   instanceId,
   distribution,
-  distributionBaseUrl,
   onLaunch,
   isJavaInstalling = false,
 }) => {
@@ -107,9 +105,8 @@ const InstanceView: React.FC<InstanceViewProps> = ({
       setShowTitle(true);
     }
 
-    if (instance?.background_video && instanceId && distributionBaseUrl) {
+    if (instance?.background_video && instanceId) {
       invoke<string>('get_instance_background_video', {
-        baseUrl: distributionBaseUrl,
         instanceId: instanceId,
         videoPath: instance.background_video
       })
@@ -128,7 +125,7 @@ const InstanceView: React.FC<InstanceViewProps> = ({
     } else {
       setLocalVideoPath(null);
     }
-  }, [instance?.background_video, instanceId, distributionBaseUrl]);
+  }, [instance?.background_video, instanceId]);
 
   // Fade out the title when the video is loaded
   useEffect(() => {

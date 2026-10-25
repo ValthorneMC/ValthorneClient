@@ -19,6 +19,7 @@ mod launcher;
 mod utils;
 mod sessions_api;
 mod instances;
+mod dist;
 mod auth_ms;
 mod commands;
 mod http_client;
@@ -80,81 +81,15 @@ async fn launch_minecraft_with_java(
     launch_minecraft_with_auth(&app_handle, &instance_id, &minecraft_version, &java_path, &access_token, min_ram_gb, max_ram_gb).await
 }
 
-/// Finds the mod loader JSON, or falls back to the vanilla version's JSON
-/// Uses the same logic as get_mod_loader_jvm_args to detect mod loaders
+/// Finds the Fabric profile JSON, or falls back to the vanilla version's JSON
 fn find_version_json_path(instance_dir: &std::path::Path, minecraft_version: &str) -> Result<std::path::PathBuf, String> {
-    use std::path::PathBuf;
-
-    let versions_dir = instance_dir.join("versions");
-    if !versions_dir.exists() {
-        // Fallback: use the vanilla version's JSON
-        let vanilla_json = versions_dir.join(minecraft_version).join(format!("{}.json", minecraft_version));
-        if vanilla_json.exists() {
-            return Ok(vanilla_json);
-        }
-        return Err(format!("Versions directory does not exist: {}", versions_dir.display()));
+    if let Some(path) = crate::launcher::find_fabric_version_json(instance_dir) {
+        return Ok(path);
     }
-
-    // Find the mod loader JSON using the same logic as get_mod_loader_jvm_args
-    let mut candidate_json: Option<PathBuf> = None;
-    let mut fallback_json: Option<PathBuf> = None;
-    
-    if let Ok(entries) = std::fs::read_dir(&versions_dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_dir() {
-                let dir_name = entry.file_name();
-                let dir_name_str = dir_name.to_string_lossy();
-                let json_path = path.join(format!("{}.json", dir_name_str));
-                
-                if json_path.exists() {
-                    if let Ok(content) = std::fs::read_to_string(&json_path) {
-                        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
-                            // Verify it's a mod loader (has a mod loader mainClass or arguments.jvm)
-                            // This is the same logic used by get_mod_loader_jvm_args
-                            let is_mod_loader = json.get("mainClass")
-                                .and_then(|v| v.as_str())
-                                .map(|mc| mc.contains("forge") || mc.contains("neoforge") || mc.contains("fabric") || mc.contains("Knot"))
-                                .unwrap_or(false)
-                                || json.get("arguments")
-                                    .and_then(|a| a.get("jvm"))
-                                    .is_some();
-                            
-                            if is_mod_loader {
-                                let json_id = json.get("id").and_then(|v| v.as_str()).unwrap_or("");
-                                
-                                let is_clear_mod_loader = json_id.starts_with("fabric-loader-") 
-                                    || json_id.starts_with("forge-") 
-                                    || json_id.starts_with("neoforge-")
-                                    || dir_name_str.starts_with("fabric-loader-")
-                                    || dir_name_str.starts_with("forge-")
-                                    || dir_name_str.starts_with("neoforge-");
-                                
-                                if is_clear_mod_loader {
-                                    candidate_json = Some(json_path);
-                                    break;
-                                } else {
-                                    if fallback_json.is_none() {
-                                        fallback_json = Some(json_path);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    
-    if let Some(json_path) = candidate_json.or(fallback_json) {
-        return Ok(json_path);
-    }
-    
-    let vanilla_json = versions_dir.join(minecraft_version).join(format!("{}.json", minecraft_version));
+    let vanilla_json = instance_dir.join("versions").join(minecraft_version).join(format!("{}.json", minecraft_version));
     if vanilla_json.exists() {
         return Ok(vanilla_json);
     }
-    
     Err(format!("No version JSON found for {}", minecraft_version))
 }
 
@@ -177,11 +112,6 @@ async fn launch_minecraft_with_auth(
     
     let version_json_path = find_version_json_path(&instance_dir, minecraft_version)?;
     
-    let version_id = version_json_path
-        .parent()
-        .and_then(|p| p.file_name())
-        .and_then(|n| n.to_str())
-        .map(|s| s.to_string());
     
     let classpath = crate::launcher::build_minecraft_classpath_from_json(&instance_dir, &version_json_path)?;
     {
@@ -208,7 +138,7 @@ async fn launch_minecraft_with_auth(
     
     let mut jvm_args = crate::launcher::build_minecraft_jvm_args(access_token, min_ram, max_ram, &gc_config, &jvm_args_config)?;
     
-    let mod_loader_jvm_args = crate::launcher::get_mod_loader_jvm_args(&instance_dir, None, None, None);
+    let mod_loader_jvm_args = crate::launcher::get_mod_loader_jvm_args(&instance_dir);
     if !mod_loader_jvm_args.is_empty() {
         jvm_args.extend(mod_loader_jvm_args);
     }
@@ -238,7 +168,7 @@ async fn launch_minecraft_with_auth(
     mc_args.push("--height".to_string());
     mc_args.push(window_height.to_string());
 
-    let main_class = crate::launcher::select_main_class(&instance_dir, version_id.as_deref());
+    let main_class = crate::launcher::select_main_class(&instance_dir);
     
     log::info!("Launching instance {} with main class: {}", instance_id, main_class);
     

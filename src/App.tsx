@@ -169,9 +169,7 @@ const launchInstance = async (
   onComplete?: () => void,
   setIsDownloadingAssets?: (downloading: boolean) => void,
   setDownloadProgress?: Dispatch<SetStateAction<AssetDownloadProgress | null>>,
-  onAuthError?: () => void,
-  baseUrl?: string,
-  instanceUrl?: string
+  onAuthError?: () => void
 ): Promise<void> => {
   let javaVersion = '';
 
@@ -222,9 +220,7 @@ const launchInstance = async (
 
         await invoke<string>('download_instance_assets', {
           instanceId: instance.id,
-          minecraftVersion: instance.minecraft_version,
-          baseUrl: baseUrl,
-          instanceUrl: instanceUrl
+          minecraftVersion: instance.minecraft_version
         });
 
         unlistenProgress();
@@ -551,7 +547,6 @@ function App() {
     return () => { if (unlisten) { try { unlisten(); } catch {} } };
   }, []);
   
-  const DISTRIBUTION_URL = 'http://files.playvalthorne.com/manifest.json';
 
   const checkForUpdatesOnStartup = async () => {
     try {
@@ -931,9 +926,7 @@ function App() {
   const loadDistribution = async (retryCount = 0) => {
     if (distributionLoaded) return;
     try {
-      const manifest = await invoke<DistributionManifest>('load_distribution_manifest', {
-        url: DISTRIBUTION_URL
-      });
+      const manifest = await invoke<DistributionManifest>('load_distribution_manifest');
       setDistribution(manifest);
       setDistributionLoaded(true);
 
@@ -1151,7 +1144,6 @@ function App() {
                    <InstanceView
                      instanceId={selectedInstance}
                      distribution={distribution}
-                     distributionBaseUrl={distribution.distribution.base_url}
                      isJavaInstalling={showLoader || isDownloadingAssets}
                      onLaunch={async (instance) => {
                        if (isDownloadingAssets) {
@@ -1174,9 +1166,7 @@ function App() {
                          () => {
                            setCurrentAccount(null);
                            setIsLoginVisible(true);
-                        },
-                        distribution?.distribution.base_url,
-                        instance.instance_url
+                        }
                        );
                      }}
                    />

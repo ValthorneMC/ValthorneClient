@@ -64,4 +64,5 @@ p256 = { version = "0.14", features = ["ecdsa", "pkcs8", "pem", "std", "getrando
 base64 = "0.23"
 uuid = { version = "1", features = ["v4"] }
 semver = "1"
+ed25519-dalek = "3"
 
