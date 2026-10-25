@@ -1,0 +1,10 @@
+name = "valthorne-dist"
+main = "src/index.ts"
+compatibility_date = "2026-01-01"
+
+[vars]
+BUCKET_NAME = "valthorne-client"
+
+[[r2_buckets]]
+binding = "BUCKET"
+bucket_name = "valthorne-client"
