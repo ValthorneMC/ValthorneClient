@@ -30,28 +30,7 @@ pub struct InstanceSummary {
     pub mod_loader: Option<ModLoader>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct InstanceManifest {
-    pub instance: InstanceInfo,
-    pub files: InstanceFiles,
-    pub launch_settings: LaunchSettings,
-    #[serde(default)]
-    pub ignored_files: Option<IgnoredFilesConfig>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct IgnoredFilesConfig {
-    #[serde(default)]
-    pub mods: Vec<String>,
-    #[serde(default)]
-    pub configs: Vec<String>,
-    #[serde(default)]
-    pub resourcepacks: Vec<String>,
-    #[serde(default)]
-    pub shaderpacks: Vec<String>,
-}
-
-/// History of files that were in the previous manifest
+/// Legacy bookkeeping from builds that installed mods straight into mods/
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ManifestHistory {
     pub last_updated: String,
@@ -71,18 +50,6 @@ pub struct ManifestHistoryFiles {
     /// Files at the instance root that were in the manifest
     #[serde(default)]
     pub root_files: Vec<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct InstanceAsset {
-    pub name: String,
-    pub path: String,
-    pub url: String,
-    pub sha256: String,
-    pub md5: Option<String>,
-    pub size: Option<u64>,
-    pub required: Option<bool>,
-    pub target: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -172,41 +139,9 @@ pub struct FabricArguments {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct InstanceInfo {
-    pub id: String,
-    pub name: String,
-    pub description: String,
-    pub version: String,
-    pub minecraft_version: String,
-    pub mod_loader: Option<ModLoader>,
-    pub icon: Option<String>,
-    pub background: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModLoader {
     pub r#type: String,
     pub version: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct InstanceFiles {
-    pub mods: Vec<FileEntry>,
-    pub configs: Vec<FileEntry>,
-    pub resourcepacks: Option<Vec<FileEntry>>,
-    pub shaderpacks: Option<Vec<FileEntry>>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FileEntry {
-    pub name: String,
-    pub path: String,
-    pub url: String,
-    pub sha256: String,
-    pub md5: Option<String>,
-    pub size: Option<u64>,
-    pub required: Option<bool>,
-    pub target: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -249,22 +184,6 @@ pub struct FabricLoaderVersion {
 pub struct FabricLoaderInfo {
     pub version: String,
     pub stable: bool,
-}
-
-// Forge version structures
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ForgeVersion {
-    pub version: String,
-    pub minecraft_version: String,
-    #[serde(default)]
-    pub recommended: bool,
-}
-
-// NeoForge version structures
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct NeoForgeVersion {
-    pub version: String,
-    pub minecraft_version: String,
 }
 
 // Unified launcher configuration

@@ -7,34 +7,9 @@ use tauri::Emitter;
 use tauri::Manager;
 use crate::UpdateState;
 use crate::models::{LauncherConfig, RamConfig, AdvancedConfig, UpdateInstallOutcome};
-use crate::DistributionManifest;
+use crate::models::{DistributionInfo, DistributionManifest, InstanceSummary};
 use std::sync::{Arc, Mutex};
 use std::collections::HashMap;
-
-/// Checks whether a file should be ignored based on the ignore patterns :)
-/// Patterns without '/' only match files at the root.
-/// Patterns with '/' can match full paths.
-fn should_ignore_config_file(file_path: &str, ignored_patterns: &[String]) -> bool {
-    let is_root_file = !file_path.contains('/');
-    
-    if is_root_file {
-        crate::utils::matches_glob_patterns(file_path, ignored_patterns)
-    } else {
-        let matches_full_path = crate::utils::matches_glob_patterns(file_path, ignored_patterns);
-        if matches_full_path {
-            true
-        } else {
-            let has_simple_pattern = ignored_patterns.iter().any(|p| !p.contains('/'));
-            if has_simple_pattern {
-                // Do NOT ignore
-                false
-            } else {
-                // No simple patterns, only compare with the full path
-                false
-            }
-        }
-    }
-}
 
 #[tauri::command]
 pub async fn create_instance_directory(instance_id: String, java_version: String) -> Result<String, String> {
@@ -788,13 +763,10 @@ pub async fn download_update_silent(
         Err(e) => Err(format!("Failed to check for updates: {}", e))
     }
 }
-
 #[tauri::command]
 pub async fn download_instance_assets(
     instance_id: String,
     minecraft_version: String,
-    base_url: Option<String>,
-    instance_url: Option<String>,
     app_handle: AppHandle,
     state: State<'_, Arc<Mutex<bool>>>
 ) -> Result<String, String> {
@@ -802,7 +774,7 @@ pub async fn download_instance_assets(
         *downloading = true;
     }
 
-    let result = download_instance_assets_inner(instance_id, minecraft_version, base_url, instance_url, app_handle).await;
+    let result = download_instance_assets_inner(instance_id, minecraft_version, app_handle).await;
 
     if let Ok(mut downloading) = state.lock() {
         *downloading = false;
@@ -811,420 +783,88 @@ pub async fn download_instance_assets(
     result
 }
 
+fn emit_stage(app_handle: &AppHandle, percentage: u32, status: &str) {
+    let _ = app_handle.emit("asset-download-progress", serde_json::json!({
+        "current": percentage,
+        "total": 100,
+        "percentage": percentage,
+        "current_file": "",
+        "status": status
+    }));
+}
+
 async fn download_instance_assets_inner(
     instance_id: String,
     minecraft_version: String,
-    base_url: Option<String>,
-    instance_url: Option<String>,
     app_handle: AppHandle,
 ) -> Result<String, String> {
     let instance_dir = crate::utils::valthorne_dir().join(&instance_id);
     let _ = tokio::fs::create_dir_all(instance_dir.join("libraries")).await;
     let _ = tokio::fs::create_dir_all(instance_dir.join("mods")).await;
-    let _ = app_handle.emit("asset-download-progress", serde_json::json!({
-        "current": 0,
-        "total": 1,
-        "percentage": 0,
-        "current_file": "",
-        "status": "Starting"
-    }));
-    let _ = app_handle.emit("asset-download-progress", serde_json::json!({
-        "current": 0,
-        "total": 100,
-        "percentage": 1,
-        "current_file": "",
-        "status": "Version"
-    }));
+    emit_stage(&app_handle, 0, "Starting");
+    emit_stage(&app_handle, 1, "Version");
     crate::instances::ensure_minecraft_client_present(&instance_dir, &minecraft_version).await?;
-    
-    let mut instance_manifest_for_assets: Option<crate::models::InstanceManifest> = None;
-    let mut base_url_for_assets: Option<String> = None;
+
+    let manifest = crate::dist::fetch_manifest().await?;
+
     let mut installed_mod_loader_version_id: Option<String> = None;
-    if let (Some(base_ml), Some(inst_url_ml)) = (base_url.clone(), instance_url.clone()) {
-        base_url_for_assets = Some(base_ml.clone());
-        let full_url = if inst_url_ml.starts_with("http") { inst_url_ml } else { format!("{}/{}", base_ml.trim_end_matches('/'), inst_url_ml.trim_start_matches('/')) };
-        let client = &crate::http_client::HTTP_CLIENT;
-        let response = client.get(&full_url).send().await.map_err(|e| format!("Failed to fetch instance details: {}", e))?;
-        if !response.status().is_success() { return Err(format!("HTTP error: {}", response.status())); }
-        let manifest: crate::models::InstanceManifest = response.json().await.map_err(|e| format!("Failed to parse instance JSON: {}", e))?;
-        instance_manifest_for_assets = Some(manifest.clone());
-        if let Some(mod_loader) = manifest.instance.mod_loader.as_ref() {
-            let _ = app_handle.emit("asset-download-progress", serde_json::json!({
-                "current": 3,
-                "total": 100,
-                "percentage": 3,
-                "current_file": "",
-                "status": "ModLoader"
-            }));
-            installed_mod_loader_version_id = crate::instances::install_mod_loader(&minecraft_version, mod_loader, &instance_dir).await?;
-        }
+    if let Some(mod_loader) = manifest.mod_loader.as_ref() {
+        emit_stage(&app_handle, 3, "ModLoader");
+        installed_mod_loader_version_id = crate::instances::install_mod_loader(&minecraft_version, mod_loader, &instance_dir).await?;
     }
 
-    let _ = app_handle.emit("asset-download-progress", serde_json::json!({
-        "current": 10,
-        "total": 100,
-        "percentage": 10,
-        "current_file": "",
-        "status": "Mojang"
-    }));
+    emit_stage(&app_handle, 10, "Mojang");
     let _ = crate::instances::ensure_assets_present_with_progress(&app_handle, &instance_dir, &minecraft_version, None).await?;
-    
-    let _ = app_handle.emit("asset-download-progress", serde_json::json!({
-        "current": 90,
-        "total": 100,
-        "percentage": 90,
-        "current_file": "",
-        "status": "Libraries"
-    }));
+
+    emit_stage(&app_handle, 85, "Libraries");
     crate::instances::ensure_version_libraries(&instance_dir, &minecraft_version).await?;
-    
-    // Download mod loader libraries if applicable (using the version_id returned by install_mod_loader)
     if let Some(version_id) = &installed_mod_loader_version_id {
         crate::instances::ensure_mod_loader_libraries(&instance_dir, version_id).await?;
     }
-    
-    if let (Some(instance), Some(base)) = (instance_manifest_for_assets, base_url_for_assets) {
-        let _ = app_handle.emit("asset-download-progress", serde_json::json!({
-            "current": 95,
-            "total": 100,
-            "percentage": 95,
-            "current_file": "",
-            "status": "Instance"
-        }));
-        // Load previous manifest history
-        let previous_history = crate::instances::load_manifest_history(&instance_dir)?;
 
-        // Get ignored file patterns
-        let ignored_patterns = instance.ignored_files.as_ref();
-        let empty_vec = Vec::<String>::new();
-        let ignored_mods = ignored_patterns.map(|p| &p.mods).unwrap_or(&empty_vec);
-        let ignored_configs = ignored_patterns.map(|p| &p.configs).unwrap_or(&empty_vec);
-        let ignored_resourcepacks = ignored_patterns.map(|p| &p.resourcepacks).unwrap_or(&empty_vec);
-        let ignored_shaderpacks = ignored_patterns.map(|p| &p.shaderpacks).unwrap_or(&empty_vec);
-        
-        use std::collections::HashSet;
-        let mut expected_mods: HashSet<String> = HashSet::new();
-        
-        // Prepare mods directory
-        let mods_dir = instance_dir.join("mods");
-        if let Some(parent) = mods_dir.parent() {
-            tokio::fs::create_dir_all(parent).await.map_err(|e| e.to_string())?;
-        }
-        tokio::fs::create_dir_all(&mods_dir).await.map_err(|e| e.to_string())?;
+    emit_stage(&app_handle, 90, "Instance");
+    let mc_token = crate::dist::fresh_access_token(&app_handle).await?;
+    crate::dist::sync_instance(&app_handle, &instance_dir, &manifest, &mc_token).await?;
 
-        // Prepare list of files to download in parallel
-        let mut mods_to_download: Vec<(String, std::path::PathBuf)> = Vec::new();
-        for mod_file in &instance.files.mods {
-            if crate::utils::sanitize_filename_component(&mod_file.name).is_err() {
-                log::warn!("Skipping mod with unsafe name: {}", mod_file.name);
-                continue;
-            }
-            expected_mods.insert(mod_file.name.clone());
-            let should_ignore = crate::utils::matches_glob_patterns(&mod_file.name, ignored_mods);
-            let file_url = if mod_file.url.starts_with("http") {
-                mod_file.url.clone()
-            } else {
-                format!("{}/{}", base.trim_end_matches('/'), mod_file.url.trim_start_matches('/'))
-            };
-            let target_path = mods_dir.join(&mod_file.name);
-            
-            if should_ignore {
-                // Ignored file: only download if it does NOT exist (first time)
-                if !target_path.exists() {
-                    mods_to_download.push((file_url, target_path));
-                }
-            } else {
-                // Non-ignored file: check whether it needs downloading
-            let mut needs_download = true;
-            if target_path.exists() {
-                if !mod_file.sha256.is_empty() {
-                        if crate::instances::verify_file_checksum(&target_path, &mod_file.sha256).is_ok() { 
-                            needs_download = false; 
-                        }
-                } else if let Some(md5) = mod_file.md5.as_ref() {
-                    if !md5.is_empty() {
-                            if crate::instances::verify_file_md5(&target_path, md5).is_ok() { 
-                                needs_download = false; 
-                            }
-                    }
-                }
-            }
-                if needs_download {
-                    mods_to_download.push((file_url, target_path));
-                }
-            }
-        }
-        
-        // Download mods in parallel
-        if !mods_to_download.is_empty() {
-            use futures_util::stream::{self, StreamExt};
-            let parallel = num_cpus::get().saturating_mul(8).max(50).min(mods_to_download.len());
-
-            // HTTP client optimized with a large connection pool
-            let client = std::sync::Arc::new(reqwest::Client::builder()
-                .user_agent("ValthorneClient/1.0")
-                .connect_timeout(std::time::Duration::from_secs(5))
-                .timeout(std::time::Duration::from_secs(120))
-                .pool_max_idle_per_host(50)
-                .pool_idle_timeout(std::time::Duration::from_secs(60))
-                .tcp_nodelay(true)
-                .build()
-                .map_err(|e| format!("Failed to build HTTP client: {}", e))?);
-
-            let results: Vec<Result<(), String>> = stream::iter(mods_to_download.into_iter())
-                .map(|(url, path)| {
-                    let client = client.clone();
-                    async move {
-                        crate::instances::download_file_with_retry_and_client(&client, &url, &path).await
-                    }
-                })
-                .buffer_unordered(parallel)
-                .collect()
-                .await;
-            
-            for result in results {
-                if let Err(e) = result {
-                    log::warn!("Error downloading mod: {}", e);
-                }
-            }
-        }
-        
-        if let Some(history) = &previous_history {
-            let mods_dir = instance_dir.join("mods");
-            if mods_dir.exists() {
-                for entry in std::fs::read_dir(&mods_dir).map_err(|e| e.to_string())? {
-                    let entry = entry.map_err(|e| e.to_string())?;
-                    if entry.file_type().map_err(|e| e.to_string())?.is_file() {
-                        let name = entry.file_name().to_string_lossy().to_string();
-                        // Only delete if it was in the history but is no longer in the current manifest
-                        if history.files.mods.contains(&name) && !expected_mods.contains(&name) {
-                            let should_ignore = crate::utils::matches_glob_patterns(&name, ignored_mods);
-                            if !should_ignore {
-                                let _ = std::fs::remove_file(entry.path());
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        let mut expected_configs: HashSet<String> = HashSet::new();
-        let mut expected_root_files: HashSet<String> = HashSet::new();
-        
-        // Prepare list of configs to download in parallel
-        let mut configs_to_download: Vec<(String, std::path::PathBuf)> = Vec::new();
-        for config_file in &instance.files.configs {
-            let file_url = if config_file.url.starts_with("http") { 
-                config_file.url.clone() 
-            } else { 
-                format!("{}/{}", base.trim_end_matches('/'), config_file.url.trim_start_matches('/')) 
-            };
-            let rel = crate::instances::normalize_install_path(
-                config_file.target.as_deref().unwrap_or(&config_file.path),
-            );
-            if rel.is_empty() {
-                log::warn!("Skipping config with invalid target: {}", config_file.path);
-                continue;
-            }
-            expected_configs.insert(rel.clone());
-            
-            if !rel.contains('/') {
-                expected_root_files.insert(rel.clone());
-            }
-            
-            let should_ignore = should_ignore_config_file(&rel, ignored_configs);
-            let target_path = instance_dir.join(&rel);
-            
-            // Create parent directory if needed
-            if let Some(parent) = target_path.parent() {
-                tokio::fs::create_dir_all(parent).await.map_err(|e| e.to_string())?;
-            }
-
-            if should_ignore {
-                // Ignored file: only download if it does NOT exist (first time)
-                if !target_path.exists() {
-                    configs_to_download.push((file_url, target_path));
-                }
-            } else {
-                // Non-ignored file: check whether it needs downloading
-            let mut needs_download = true;
-            if target_path.exists() {
-                if !config_file.sha256.is_empty() {
-                        if crate::instances::verify_file_checksum(&target_path, &config_file.sha256).is_ok() { 
-                            needs_download = false; 
-                        }
-                } else if let Some(md5) = config_file.md5.as_ref() {
-                    if !md5.is_empty() {
-                            if crate::instances::verify_file_md5(&target_path, md5).is_ok() { 
-                                needs_download = false; 
-                            }
-                    }
-                }
-            }
-                if needs_download {
-                    configs_to_download.push((file_url, target_path));
-                }
-            }
-        }
-        
-        // Download configs in parallel
-        if !configs_to_download.is_empty() {
-            use futures_util::stream::{self, StreamExt};
-            let parallel = num_cpus::get().saturating_mul(4).max(20).min(configs_to_download.len());
-
-            // HTTP client optimized with a large connection pool
-            let client = std::sync::Arc::new(reqwest::Client::builder()
-                .user_agent("ValthorneClient/1.0")
-                .connect_timeout(std::time::Duration::from_secs(5))
-                .timeout(std::time::Duration::from_secs(120))
-                .pool_max_idle_per_host(50)
-                .pool_idle_timeout(std::time::Duration::from_secs(60))
-                .tcp_nodelay(true)
-                .build()
-                .map_err(|e| format!("Failed to build HTTP client: {}", e))?);
-
-            let results: Vec<Result<(), String>> = stream::iter(configs_to_download.into_iter())
-                .map(|(url, path)| {
-                    let client = client.clone();
-                    async move {
-                        crate::instances::download_file_with_retry_and_client(&client, &url, &path).await
-                    }
-                })
-                .buffer_unordered(parallel)
-                .collect()
-                .await;
-            
-            for result in results {
-                if let Err(e) = result {
-                    log::warn!("Error downloading config: {}", e);
-                }
-            }
-        }
-        
-        if let Some(history) = &previous_history {
-            let config_dir = instance_dir.join("config");
-            if config_dir.exists() {
-                for entry in walkdir::WalkDir::new(&config_dir) {
-                    let entry = entry.map_err(|e| e.to_string())?;
-                    if entry.file_type().is_file() {
-                        let rel_path = entry.path().strip_prefix(&instance_dir).map_err(|e| e.to_string())?.to_string_lossy().replace('\\', "/");
-                        // Only delete if it was in the history but is no longer in the current manifest
-                        if history.files.configs.contains(&rel_path) && !expected_configs.contains(&rel_path) {
-                            let should_ignore = should_ignore_config_file(&rel_path, ignored_configs);
-                            if !should_ignore {
-                                let _ = std::fs::remove_file(entry.path());
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        
-        // Clean up root files: only delete if they were in the history but are no longer in the current manifest
-        if let Some(history) = &previous_history {
-            if let Ok(entries) = std::fs::read_dir(&instance_dir) {
-                for entry in entries.flatten() {
-                    let path = entry.path();
-                    if path.is_file() {
-                        if let Some(file_name) = path.file_name().and_then(|n| n.to_str()) {
-                            // Ignore system files (.manifest_history.json, etc.)
-                            if file_name.starts_with('.') {
-                                continue;
-                            }
-                            // Only process files that were in the root_files history
-                            if history.files.root_files.contains(&file_name.to_string()) && !expected_root_files.contains(file_name) {
-                                let should_ignore = should_ignore_config_file(file_name, ignored_configs);
-                                if !should_ignore {
-                                    let _ = std::fs::remove_file(&path);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        
-        // Clean up resourcepacks: only delete if they were in the history but are no longer in the current manifest
-        if let Some(history) = &previous_history {
-            let mut expected_resourcepacks: HashSet<String> = HashSet::new();
-            if let Some(resourcepacks) = &instance.files.resourcepacks {
-                for rp_file in resourcepacks {
-                    expected_resourcepacks.insert(rp_file.name.clone());
-                }
-            }
-            
-            let resourcepacks_dir = instance_dir.join("resourcepacks");
-            if resourcepacks_dir.exists() {
-                if let Ok(entries) = std::fs::read_dir(&resourcepacks_dir) {
-                    for entry in entries.flatten() {
-                        let path = entry.path();
-                        if path.is_file() {
-                            if let Some(file_name) = path.file_name().and_then(|n| n.to_str()) {
-                                if history.files.resourcepacks.contains(&file_name.to_string()) && !expected_resourcepacks.contains(file_name) {
-                                    let should_ignore = crate::utils::matches_glob_patterns(file_name, ignored_resourcepacks);
-                                    if !should_ignore {
-                                        let _ = std::fs::remove_file(&path);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        
-        // Clean up shaderpacks: only delete if they were in the history but are no longer in the current manifest
-        if let Some(history) = &previous_history {
-            let mut expected_shaderpacks: HashSet<String> = HashSet::new();
-            if let Some(shaderpacks) = &instance.files.shaderpacks {
-                for sp_file in shaderpacks {
-                    expected_shaderpacks.insert(sp_file.name.clone());
-                }
-            }
-            
-            let shaderpacks_dir = instance_dir.join("shaderpacks");
-            if shaderpacks_dir.exists() {
-                if let Ok(entries) = std::fs::read_dir(&shaderpacks_dir) {
-                    for entry in entries.flatten() {
-                        let path = entry.path();
-                        if path.is_file() {
-                            if let Some(file_name) = path.file_name().and_then(|n| n.to_str()) {
-                                if history.files.shaderpacks.contains(&file_name.to_string()) && !expected_shaderpacks.contains(file_name) {
-                                    let should_ignore = crate::utils::matches_glob_patterns(file_name, ignored_shaderpacks);
-                                    if !should_ignore {
-                                        let _ = std::fs::remove_file(&path);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        
-        // Save the new history after processing all files
-        crate::instances::save_manifest_history(&instance_dir, &instance).await?;
-    }
-    
-    let _ = app_handle.emit("asset-download-progress", serde_json::json!({
-        "current": 100,
-        "total": 100,
-        "percentage": 100,
-        "current_file": "",
-        "status": "Completed"
-    }));
+    emit_stage(&app_handle, 100, "Completed");
     let _ = app_handle.emit("asset-download-completed", serde_json::json!({ "phase": "complete" }));
 
     Ok("ok".to_string())
 }
 
 #[tauri::command]
-pub async fn load_distribution_manifest(url: String) -> Result<DistributionManifest, String> {
-    let client = &crate::http_client::HTTP_CLIENT;
-    let response = client.get(&url).send().await.map_err(|e| format!("Failed to fetch manifest: {}", e))?;
-    if !response.status().is_success() { return Err(format!("HTTP error: {}", response.status())); }
-    let manifest: DistributionManifest = response.json().await.map_err(|e| format!("Failed to parse manifest JSON: {}", e))?;
-    Ok(manifest)
+pub async fn load_distribution_manifest() -> Result<DistributionManifest, String> {
+    let manifest = crate::dist::fetch_manifest().await?;
+
+    let asset = |predicate: &dyn Fn(&str) -> bool| {
+        manifest.files.iter()
+            .find(|f| f.kind == "asset" && predicate(&f.path.to_lowercase()))
+            .map(|f| f.path.clone())
+    };
+    let summary = InstanceSummary {
+        id: "valthorne".to_string(),
+        name: manifest.name.clone(),
+        description: manifest.description.clone(),
+        version: manifest.version.clone(),
+        minecraft_version: manifest.minecraft_version.clone(),
+        icon: asset(&|p| p.contains("icon")),
+        background: asset(&|p| p.contains("background") && !p.ends_with(".mp4")),
+        background_video: asset(&|p| p.ends_with(".mp4")),
+        last_updated: Some(manifest.published_at.clone()),
+        instance_url: String::new(),
+        mod_loader: manifest.mod_loader.clone(),
+    };
+
+    Ok(DistributionManifest {
+        distribution: DistributionInfo {
+            name: manifest.name,
+            version: manifest.version,
+            description: manifest.description,
+            base_url: String::new(),
+            last_updated: manifest.published_at,
+        },
+        instances: vec![summary],
+    })
 }
 
 /// Ensures the instance's background video is downloaded locally and returns its path.
@@ -1234,39 +874,14 @@ pub async fn load_distribution_manifest(url: String) -> Result<DistributionManif
 /// file (tens/hundreds of MB) being read into memory and serialized across the IPC bridge.
 #[tauri::command]
 pub async fn get_instance_background_video(
-    base_url: String,
+    app_handle: AppHandle,
     instance_id: String,
     video_path: String,
 ) -> Result<String, String> {
-    use std::path::Path;
-
-    let launcher = crate::launcher::MinecraftLauncher::new().map_err(|e| e.to_string())?;
-    let instance_dir = launcher.config.minecraft_dir.join("instances").join(&instance_id);
-    let video_dir = instance_dir.join("assets");
-    tokio::fs::create_dir_all(&video_dir).await.map_err(|e| e.to_string())?;
-
-    // Build the file name from the path (e.g. "instances/thanatophobia2/assets/th2trailer.mp4" -> "th2trailer.mp4")
-    let video_file_name = Path::new(&video_path)
-        .file_name()
-        .and_then(|n| n.to_str())
-        .ok_or_else(|| "Invalid video path".to_string())?;
-
-    let local_video_path = video_dir.join(video_file_name);
-
-    // If the video doesn't exist locally, download it
-    if !local_video_path.exists() {
-        // Build the full video URL
-        let video_url = if video_path.starts_with("http") {
-            video_path
-        } else {
-            format!("{}/{}", base_url.trim_end_matches('/'), video_path.trim_start_matches('/'))
-        };
-
-        // Download the video
-        crate::instances::download_file(&video_url, &local_video_path).await.map_err(|e| e.to_string())?;
-    }
-
-    Ok(local_video_path.to_string_lossy().to_string())
+    let instance_dir = crate::utils::valthorne_dir().join(&instance_id);
+    let manifest = crate::dist::fetch_manifest().await?;
+    let path = crate::dist::ensure_asset(&app_handle, &instance_dir, &manifest, &video_path).await?;
+    Ok(path.to_string_lossy().to_string())
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]

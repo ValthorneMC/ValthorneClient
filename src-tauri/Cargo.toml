@@ -1,6 +1,6 @@
 [package]
 name = "valthorneclient"
-version = "1.1.8"
+version = "1.2.0"
 description = "Official client for the Valthorne Minecraft server."
 authors = ["Valthorne"]
 edition = "2024"
@@ -44,7 +44,7 @@ md5 = "0.8"
 walkdir = "2.5"
 num_cpus = "1.16"
 sysinfo = { version = "0.39", default-features = false, features = ["system"] }
-dirs = "6.0"
+dirs = "7.0"
 chrono = { version = "0.4", features = ["serde"] }
 dotenv = "0.15"
 log = { version = "0.4", features = ["std"] }
@@ -64,4 +64,5 @@ p256 = { version = "0.14", features = ["ecdsa", "pkcs8", "pem", "std", "getrando
 base64 = "0.23"
 uuid = { version = "1", features = ["v4"] }
 semver = "1"
+ed25519-dalek = "3"
 

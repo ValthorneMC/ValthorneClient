@@ -3,7 +3,6 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
-use chrono;
  
 use tauri::Emitter;
 
@@ -135,115 +134,6 @@ pub async fn download_file_with_retry_and_client(client: &reqwest::Client, url: 
     Err(format!("Failed to download {} after {} attempts", url, MAX_RETRIES))
 }
 
-pub fn verify_file_checksum(file_path: &Path, expected_sha256: &str) -> Result<(), String> {
-    use sha2::{Digest, Sha256};
-
-    let content = std::fs::read(file_path)
-        .map_err(|e| format!("Failed to read file for checksum verification: {}", e))?;
-
-    let mut hasher = Sha256::new();
-    hasher.update(&content);
-    let actual_sha256: String = hasher.finalize().iter().map(|b| format!("{:02x}", b)).collect();
-
-    if actual_sha256 != expected_sha256 {
-        return Err(format!(
-            "Checksum verification failed for {}: expected {}, got {}",
-            file_path.display(),
-            expected_sha256,
-            actual_sha256
-        ));
-    }
-
-    Ok(())
-}
-
-pub fn verify_file_md5(file_path: &Path, expected_md5: &str) -> Result<(), String> {
-    let content = std::fs::read(file_path)
-        .map_err(|e| format!("Failed to read file for md5 verification: {}", e))?;
-    let digest = md5::compute(content);
-    let actual = format!("{:x}", digest);
-    if actual.eq_ignore_ascii_case(expected_md5) {
-        Ok(())
-    } else {
-        Err(format!("MD5 mismatch for {}: expected {}, got {}", file_path.display(), expected_md5, actual))
-    }
-}
-
-pub fn load_manifest_history(instance_dir: &Path) -> Result<Option<crate::models::ManifestHistory>, String> {
-    let history_path = instance_dir.join(".manifest_history.json");
-    
-    if !history_path.exists() {
-        return Ok(None);
-    }
-    
-    let content = std::fs::read_to_string(&history_path)
-        .map_err(|e| format!("Failed to read manifest history: {}", e))?;
-    
-    let history: crate::models::ManifestHistory = serde_json::from_str(&content)
-        .map_err(|e| format!("Failed to parse manifest history: {}", e))?;
-    
-    Ok(Some(history))
-}
-
-pub async fn save_manifest_history(instance_dir: &Path, instance: &crate::models::InstanceManifest) -> Result<(), String> {
-    let mut history_files = crate::models::ManifestHistoryFiles {
-        mods: Vec::new(),
-        configs: Vec::new(),
-        resourcepacks: Vec::new(),
-        shaderpacks: Vec::new(),
-        root_files: Vec::new(),
-    };
-    
-    for mod_file in &instance.files.mods {
-        history_files.mods.push(mod_file.name.clone());
-    }
-    
-    for config_file in &instance.files.configs {
-        let rel = normalize_install_path(config_file.target.as_deref().unwrap_or(&config_file.path));
-
-        // If it's at the root, add it to root_files
-        if !rel.contains('/') {
-            history_files.root_files.push(rel.clone());
-        }
-        
-        history_files.configs.push(rel);
-    }
-    
-    if let Some(resourcepacks) = &instance.files.resourcepacks {
-        for rp_file in resourcepacks {
-            history_files.resourcepacks.push(rp_file.name.clone());
-        }
-    }
-    
-    if let Some(shaderpacks) = &instance.files.shaderpacks {
-        for sp_file in shaderpacks {
-            history_files.shaderpacks.push(sp_file.name.clone());
-        }
-    }
-    
-    let history = crate::models::ManifestHistory {
-        last_updated: chrono::Utc::now().to_rfc3339(),
-        files: history_files,
-    };
-    
-    let history_path = instance_dir.join(".manifest_history.json");
-    let history_json = serde_json::to_string_pretty(&history)
-        .map_err(|e| format!("Failed to serialize manifest history: {}", e))?;
-    
-    tokio::fs::write(&history_path, history_json).await
-        .map_err(|e| format!("Failed to write manifest history: {}", e))?;
-    
-    Ok(())
-}
-
-pub fn build_distribution_url(distribution_url: &str) -> String {
-    if distribution_url.trim_end_matches('/').ends_with("/dist") {
-        distribution_url.trim_end_matches('/').to_string()
-    } else {
-        distribution_url.trim_end_matches('/').to_string()
-    }
-}
-
 pub async fn ensure_minecraft_client_present(instance_dir: &Path, mc_version: &str) -> Result<(), String> {
     let version_dir = instance_dir.join("versions").join(mc_version);
     let jar_path = version_dir.join(format!("{}.jar", mc_version));
@@ -364,8 +254,8 @@ pub async fn ensure_version_libraries(instance_dir: &Path, mc_version: &str) -> 
     Ok(())
 }
 
-/// Downloads the libraries from the mod loader JSON (NeoForge/Fabric/Forge)
-/// This is CRITICAL because mod loaders like Fabric/NeoForge add their own library versions
+/// Downloads the libraries from the mod loader JSON (Fabric)
+/// This is CRITICAL because mod loaders like Fabric adds their own library versions
 /// Example: Fabric uses asm-9.9 instead of vanilla MC's asm-9.6
 pub async fn ensure_mod_loader_libraries(instance_dir: &Path, version_id: &str) -> Result<(), String> {
     let version_dir = instance_dir.join("versions").join(version_id);
@@ -450,8 +340,6 @@ pub async fn ensure_mod_loader_libraries(instance_dir: &Path, version_id: &str) 
 pub async fn install_mod_loader(minecraft_version: &str, mod_loader: &ModLoader, instance_dir: &Path) -> Result<Option<String>, String> {
     match mod_loader.r#type.as_str() {
         "fabric" => install_fabric(minecraft_version, &mod_loader.version, instance_dir).await,
-        "forge" => install_forge(minecraft_version, &mod_loader.version, instance_dir).await,
-        "neoforge" => install_neoforge(minecraft_version, &mod_loader.version, instance_dir).await,
         "vanilla" => Ok(None),
         _ => Err(format!("Unsupported mod loader type: {}", mod_loader.r#type))
     }
@@ -485,230 +373,9 @@ async fn install_fabric(minecraft_version: &str, fabric_version: &str, instance_
     Ok(find_version_id_in_versions_dir(instance_dir, "fabric"))
 }
 
-async fn install_forge(minecraft_version: &str, forge_version: &str, instance_dir: &Path) -> Result<Option<String>, String> {
-    log::info!("Installing Forge {} for Minecraft {}", forge_version, minecraft_version);
-    
-    let forge_marker = instance_dir
-        .join("libraries")
-        .join("net")
-        .join("minecraftforge")
-        .join("forge")
-        .join(forge_version)
-        .join(format!("forge-{}.jar", forge_version));
-    
-    if forge_marker.exists() {
-        return Ok(find_version_id_in_versions_dir(instance_dir, "forge"));
-    }
-    
-    let libraries_dir = instance_dir.join("libraries");
-    tokio::fs::create_dir_all(&libraries_dir).await
-        .map_err(|e| format!("Failed to create libraries directory: {}", e))?;
-    
-    let installer_url = format!(
-        "https://maven.minecraftforge.net/net/minecraftforge/forge/{}/forge-{}-installer.jar",
-        forge_version, forge_version
-    );
-    
-    let installer_path = libraries_dir.join(format!("forge-installer-{}.jar", forge_version));
-    download_file_with_retry(&installer_url, &installer_path).await?;
-    
-    run_forge_installer(&installer_path, instance_dir, minecraft_version).await?;
-    log::info!("Forge {} installed successfully", forge_version);
-    ensure_minecraft_client_present(instance_dir, minecraft_version).await?;
-    
-    Ok(find_version_id_in_versions_dir(instance_dir, "forge"))
-}
-
-async fn run_forge_installer(installer: &Path, instance_dir: &Path, minecraft_version: &str) -> Result<(), String> {
-    ensure_launcher_profile(instance_dir)?;
-    
-    let java_path = crate::launcher::find_or_install_java_for_minecraft(minecraft_version).await?;
-    
-    let temp_dir = std::env::temp_dir().join("valthorneclient_forge_install");
-    std::fs::create_dir_all(&temp_dir).map_err(|e| format!("Failed to create temp dir: {}", e))?;
-    
-    let temp_installer = temp_dir.join(installer.file_name().unwrap());
-    std::fs::copy(installer, &temp_installer).map_err(|e| format!("Failed to copy installer: {}", e))?;
-    
-    let mut cmd = Command::new(&java_path);
-    
-    #[cfg(target_os = "windows")]
-    {
-        const CREATE_NO_WINDOW: u32 = 0x08000000;
-        cmd.creation_flags(CREATE_NO_WINDOW);
-    }
-    
-    let output = cmd
-        .current_dir(&temp_dir)
-        .args(&[
-            "-jar",
-            &temp_installer.to_string_lossy(),
-            "--installClient",
-            instance_dir.to_string_lossy().as_ref(),
-        ])
-        .output()
-        .map_err(|e| format!("Failed to run Forge installer: {}", e))?;
-    
-    let _ = std::fs::remove_file(&temp_installer);
-    let _ = std::fs::remove_dir_all(&temp_dir);
-    
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        log::error!("Forge installer stderr: {}", stderr);
-        log::error!("Forge installer stdout: {}", stdout);
-        return Err(format!("Forge installer failed: {}", stderr));
-    }
-    
-    Ok(())
-}
-
-async fn install_neoforge(minecraft_version: &str, neoforge_version: &str, instance_dir: &Path) -> Result<Option<String>, String> {
-    log::info!("Installing NeoForge {} for Minecraft {}", neoforge_version, minecraft_version);
-    
-    let neoforge_marker = instance_dir
-        .join("libraries")
-        .join("net")
-        .join("neoforged")
-        .join("neoforge")
-        .join(neoforge_version)
-        .join(format!("neoforge-{}.jar", neoforge_version));
-    
-    if neoforge_marker.exists() {
-        return Ok(find_version_id_in_versions_dir(instance_dir, "neoforge"));
-    }
-    
-    let libraries_dir = instance_dir.join("libraries");
-    tokio::fs::create_dir_all(&libraries_dir).await
-        .map_err(|e| format!("Failed to create libraries directory: {}", e))?;
-    
-    let installer_url = format!(
-        "https://maven.neoforged.net/releases/net/neoforged/neoforge/{}/neoforge-{}-installer.jar",
-        neoforge_version, neoforge_version
-    );
-    
-    let installer_path = libraries_dir.join(format!("neoforge-installer-{}.jar", neoforge_version));
-    download_file_with_retry(&installer_url, &installer_path).await?;
-    
-    run_neoforge_installer(&installer_path, instance_dir, minecraft_version).await?;
-    log::info!("NeoForge {} installed successfully", neoforge_version);
-    ensure_minecraft_client_present(instance_dir, minecraft_version).await?;
-    
-    Ok(find_version_id_in_versions_dir(instance_dir, "neoforge"))
-}
-
-async fn run_neoforge_installer(installer: &Path, instance_dir: &Path, minecraft_version: &str) -> Result<(), String> {
-    ensure_launcher_profile(instance_dir)?;
-    
-    let java_path = crate::launcher::find_or_install_java_for_minecraft(minecraft_version).await?;
-    
-    let temp_dir = std::env::temp_dir().join("valthorneclient_neoforge_install");
-    std::fs::create_dir_all(&temp_dir).map_err(|e| format!("Failed to create temp dir: {}", e))?;
-    
-    let temp_installer = temp_dir.join(installer.file_name().unwrap());
-    std::fs::copy(installer, &temp_installer).map_err(|e| format!("Failed to copy installer: {}", e))?;
-    
-    let mut cmd = Command::new(&java_path);
-    
-    #[cfg(target_os = "windows")]
-    {
-        const CREATE_NO_WINDOW: u32 = 0x08000000;
-        cmd.creation_flags(CREATE_NO_WINDOW);
-    }
-    
-    let output = cmd
-        .current_dir(&temp_dir)
-        .args(&[
-            "-jar",
-            &temp_installer.to_string_lossy(),
-            "--installClient",
-            instance_dir.to_string_lossy().as_ref(),
-        ])
-        .output()
-        .map_err(|e| format!("Failed to run NeoForge installer: {}", e))?;
-    
-    let _ = std::fs::remove_file(&temp_installer);
-    let _ = std::fs::remove_dir_all(&temp_dir);
-    
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        log::error!("NeoForge installer stderr: {}", stderr);
-        log::error!("NeoForge installer stdout: {}", stdout);
-        return Err(format!("NeoForge installer failed: {}", stderr));
-    }
-    
-    Ok(())
-}
-pub fn find_version_id_in_versions_dir(instance_dir: &Path, loader_type: &str) -> Option<String> {
-    let versions_dir = instance_dir.join("versions");
-    if !versions_dir.exists() {
-        return None;
-    }
-    
-    if let Ok(entries) = std::fs::read_dir(&versions_dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_dir() {
-                let dir_name = entry.file_name();
-                let dir_name_str = dir_name.to_string_lossy();
-                let json_path = path.join(format!("{}.json", dir_name_str));
-                
-                if json_path.exists() {
-                    if let Ok(content) = std::fs::read_to_string(&json_path) {
-                        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
-                            // Verify it's a mod loader of the correct type
-                            let json_id = json.get("id").and_then(|v| v.as_str()).unwrap_or("");
-                            let matches_loader = match loader_type {
-                                "neoforge" => json_id.starts_with("neoforge-") || dir_name_str.starts_with("neoforge-"),
-                                "forge" => (json_id.starts_with("forge-") && !json_id.starts_with("neoforge-")) || 
-                                          (dir_name_str.starts_with("forge-") && !dir_name_str.starts_with("neoforge-")),
-                                "fabric" => json_id.starts_with("fabric-loader-") || dir_name_str.starts_with("fabric-loader-"),
-                                _ => false,
-                            };
-                            
-                            if matches_loader {
-                                return Some(json_id.to_string());
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    
-    None
-}
-
-fn ensure_launcher_profile(instance_dir: &Path) -> Result<(), String> {
-    let profile_path = instance_dir.join("launcher_profiles.json");
-    
-    if !profile_path.exists() {
-        
-        let profile_content = serde_json::json!({
-            "profiles": {
-                "default": {
-                    "name": "ValthorneClient",
-                    "type": "custom",
-                    "created": chrono::Utc::now().to_rfc3339(),
-                    "lastUsed": chrono::Utc::now().to_rfc3339(),
-                    "lastVersionId": "release",
-                    "gameDir": instance_dir.to_string_lossy()
-                }
-            },
-            "settings": {
-                "enableSnapshots": false,
-                "enableAdvanced": false
-            },
-            "version": 3
-        });
-        
-        std::fs::write(&profile_path, serde_json::to_string_pretty(&profile_content).unwrap())
-            .map_err(|e| format!("Failed to create launcher_profiles.json: {}", e))?;
-        
-    }
-    
-    Ok(())
+pub fn find_version_id_in_versions_dir(instance_dir: &Path, _loader_type: &str) -> Option<String> {
+    let json_path = crate::launcher::find_fabric_version_json(instance_dir)?;
+    json_path.file_stem().map(|n| n.to_string_lossy().to_string())
 }
 
 // Stubs expected to be defined elsewhere in codebase (existing functions)

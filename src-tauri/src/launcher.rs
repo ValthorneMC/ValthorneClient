@@ -1,16 +1,6 @@
 use anyhow::Result;
 use std::path::{Path, PathBuf};
 
-pub struct MinecraftLauncher {
-    pub config: LauncherConfig,
-}
-
-impl MinecraftLauncher {
-    pub fn new() -> Result<Self> {
-        Ok(Self { config: LauncherConfig::new()? })
-    }
-}
-
 pub fn get_required_java_version_for_minecraft(mc_version: &str) -> u8 {
     let version_parts: Vec<&str> = mc_version.split('.').collect();
     
@@ -147,7 +137,7 @@ pub fn build_minecraft_classpath_from_json(instance_dir: &Path, version_json_pat
     let libs_dir = instance_dir.join("libraries");
     let classpath_separator = if cfg!(target_os = "windows") { ";" } else { ":" };
     
-    // Check if this JSON inherits from another (e.g., NeoForge inherits from vanilla MC)
+    // Check if this JSON inherits from another (Fabric inherits from vanilla MC)
     if let Some(inherits_from) = version_info.get("inheritsFrom").and_then(|v| v.as_str()) {
         // Parse the base JSON first (e.g., 1.21.8.json) to get LWJGL and other base libraries
         let base_json_path = instance_dir
@@ -170,7 +160,7 @@ pub fn build_minecraft_classpath_from_json(instance_dir: &Path, version_json_pat
         }
     }
     
-    // Parse libraries from the mod loader JSON (NeoForge/Forge/Fabric specific libraries)
+    // Parse libraries from the mod loader JSON (Fabric specific libraries)
     // These OVERRIDE base libraries with same artifact ID (e.g., asm-9.9 overrides asm-9.6)
     if let Some(libraries) = version_info.get("libraries").and_then(|v| v.as_array()) {
         for lib in libraries {
@@ -178,67 +168,33 @@ pub fn build_minecraft_classpath_from_json(instance_dir: &Path, version_json_pat
         }
     }
     
-    // Add client JAR (from versions directory)
-    // CRITICAL: NeoForge/Forge DON'T need the client JAR in classpath because BootstrapLauncher loads it specially
-    // Only Fabric (and vanilla) need the client JAR in the classpath
-    // Detect NeoForge/Forge by checking if mainClass is BootstrapLauncher
-    let main_class = version_info.get("mainClass").and_then(|v| v.as_str()).unwrap_or("");
-    let is_neoforge_or_forge = main_class.contains("bootstraplauncher.BootstrapLauncher");
-    
-    if !is_neoforge_or_forge {
-        // For Fabric/Vanilla: Add the client JAR
-        // For Fabric with inheritsFrom, use the vanilla MC client JAR (inheritsFrom value)
-        // Example: Fabric JSON has id="fabric-loader-0.17.3-1.21.8" and inheritsFrom="1.21.8"
-        //          The client JAR is at versions/1.21.8/1.21.8.jar
-        let client_version = version_info.get("inheritsFrom")
-            .and_then(|v| v.as_str())
-            .or_else(|| version_info.get("id").and_then(|v| v.as_str()))
-            .ok_or("Version ID not found in JSON")?;
-        
-        let client_jar = instance_dir.join("versions").join(client_version).join(format!("{}.jar", client_version));
-        if client_jar.exists() {
-            let normalized = dunce::canonicalize(&client_jar)
-                .unwrap_or(client_jar.clone());
-            let normalized_str = if cfg!(target_os = "windows") {
-                normalized.to_string_lossy()
-                    .strip_prefix("\\\\?\\").unwrap_or(&normalized.to_string_lossy())
-                    .replace("/", "\\")
-            } else {
-                normalized.to_string_lossy().to_string()
-            };
-            jar_map.insert("minecraft:client".to_string(), normalized_str);
-        }
+    // The client jar comes from the vanilla version the Fabric profile inherits from.
+    let client_version = version_info.get("inheritsFrom")
+        .and_then(|v| v.as_str())
+        .or_else(|| version_info.get("id").and_then(|v| v.as_str()))
+        .ok_or("Version ID not found in JSON")?;
+
+    let client_jar = instance_dir.join("versions").join(client_version).join(format!("{}.jar", client_version));
+    if client_jar.exists() {
+        let normalized = dunce::canonicalize(&client_jar).unwrap_or(client_jar.clone());
+        let normalized_str = if cfg!(target_os = "windows") {
+            normalized.to_string_lossy()
+                .strip_prefix("\\\\?\\").unwrap_or(&normalized.to_string_lossy())
+                .replace("/", "\\")
+        } else {
+            normalized.to_string_lossy().to_string()
+        };
+        jar_map.insert("minecraft:client".to_string(), normalized_str);
     }
-    
+
     if jar_map.is_empty() {
         return Err("No jars found for classpath".to_string());
     }
     
     // Convert HashMap values to Vec
-    let mut jars: Vec<String> = jar_map.into_values().collect();
-    
-    // Add mods from mods directory (for remote instances that might not have complete metadata)
-    let mods_dir = instance_dir.join("mods");
-    if mods_dir.exists() {
-        if let Ok(entries) = std::fs::read_dir(&mods_dir) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.is_file() && path.extension().map_or(false, |e| e == "jar") {
-                    if let Ok(normalized) = dunce::canonicalize(&path) {
-                        let normalized_str = if cfg!(target_os = "windows") {
-                            normalized.to_string_lossy()
-                                .strip_prefix("\\\\?\\").unwrap_or(&normalized.to_string_lossy())
-                                .replace("/", "\\")
-                        } else {
-                            normalized.to_string_lossy().to_string()
-                        };
-                        jars.push(normalized_str);
-                    }
-                }
-            }
-        }
-    }
-    
+    // Mods are not on the classpath: Fabric loads them from mods/ and from -Dfabric.addMods.
+    let jars: Vec<String> = jar_map.into_values().collect();
+
     Ok(jars.join(classpath_separator))
 }
 
@@ -342,344 +298,53 @@ fn maven_to_path(maven_coords: &str) -> Result<String, String> {
     Ok(format!("{}/{}/{}/{}-{}{}.jar", group, artifact, version, artifact, version, classifier))
 }
 
-pub fn select_main_class(instance_dir: &Path, version_id: Option<&str>) -> String {
-    if let Some(vid) = version_id {
-        let versions_dir = instance_dir.join("versions");
-        let json_path = versions_dir.join(vid).join(format!("{}.json", vid));
-        
-        if json_path.exists() {
-            if let Ok(content) = std::fs::read_to_string(&json_path) {
-                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
-                    if let Some(main_class) = json.get("mainClass").and_then(|v| v.as_str()) {
-                        return main_class.to_string();
-                    }
-                }
-            }
-        }
-    }
-    let versions_dir = instance_dir.join("versions");
-    if versions_dir.exists() {
-        if let Ok(entries) = std::fs::read_dir(&versions_dir) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.is_dir() {
-                    let dir_name = entry.file_name();
-                    let json_path = path.join(format!("{}.json", dir_name.to_string_lossy()));
-                    
-                    if json_path.exists() {
-                        if let Ok(content) = std::fs::read_to_string(&json_path) {
-                            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
-                                if let Some(main_class) = json.get("mainClass").and_then(|v| v.as_str()) {
-                                    if main_class.contains("neoforge") || main_class.contains("neoforged") {
-                                        return main_class.to_string();
-                                    } else if main_class.contains("minecraftforge") || main_class.contains("forge") {
-                                        return main_class.to_string();
-                                    } else if main_class.contains("fabricmc") || main_class.contains("fabric") {
-                                        return main_class.to_string();
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    
-    let neoforge_loader_dir = instance_dir.join("libraries").join("net").join("neoforged");
-    if neoforge_loader_dir.exists() { 
-        return "cpw.mods.bootstraplauncher.BootstrapLauncher".to_string(); 
-    }
-    
-    let forge_loader_dir = instance_dir.join("libraries").join("net").join("minecraftforge");
-    if forge_loader_dir.exists() { 
-        return "cpw.mods.bootstraplauncher.BootstrapLauncher".to_string();
-    }
-    
-	let fabric_loader_dir = instance_dir.join("libraries").join("net").join("fabricmc");
-    if fabric_loader_dir.exists() { 
-        return "net.fabricmc.loader.impl.launch.knot.KnotClient".to_string();
-    }
-    
-    "net.minecraft.client.main.Main".to_string()
-}
-
-pub fn get_mod_loader_jvm_args(instance_dir: &Path, version_id: Option<&str>, mod_loader_type: Option<&str>, _mod_loader_version: Option<&str>) -> Vec<String> {
-    let mut additional_args = Vec::new();
-    let loader_type = mod_loader_type;
-    
-    let selected_json = if let Some(vid) = version_id {
-        let versions_dir = instance_dir.join("versions");
-        let json_path = versions_dir.join(vid).join(format!("{}.json", vid));
-        
-        if json_path.exists() {
-            if let Ok(content) = std::fs::read_to_string(&json_path) {
-                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
-                    Some((json_path, json))
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
-        } else {
-            None
-        }
-    } else {
-        None
-    };
-    
-    let selected_json = selected_json.or_else(|| {
-        let versions_dir = instance_dir.join("versions");
-        if !versions_dir.exists() {
+/// Path of the Fabric profile JSON the installer created (`versions/fabric-loader-*/...json`).
+pub fn find_fabric_version_json(instance_dir: &Path) -> Option<PathBuf> {
+    let entries = std::fs::read_dir(instance_dir.join("versions")).ok()?;
+    entries.flatten().find_map(|entry| {
+        let name = entry.file_name().to_string_lossy().to_string();
+        if !name.starts_with("fabric-loader-") {
             return None;
         }
-        
-        let mut candidate_json: Option<(std::path::PathBuf, serde_json::Value)> = None;
-        let mut fallback_json: Option<(std::path::PathBuf, serde_json::Value)> = None;
-        
-        if let Ok(entries) = std::fs::read_dir(&versions_dir) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.is_dir() {
-                    let dir_name = entry.file_name();
-                    let dir_name_str = dir_name.to_string_lossy();
-                    let json_path = path.join(format!("{}.json", dir_name_str));
-                    
-                    if json_path.exists() {
-                        if let Ok(content) = std::fs::read_to_string(&json_path) {
-                            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
-                                let is_mod_loader = json.get("mainClass")
-                                    .and_then(|v| v.as_str())
-                                    .map(|mc| mc.contains("forge") || mc.contains("neoforge") || mc.contains("fabric"))
-                                    .unwrap_or(false)
-                                    || json.get("arguments")
-                                        .and_then(|a| a.get("jvm"))
-                                        .is_some();
-                                
-                                if is_mod_loader {
-                                    let json_id = json.get("id").and_then(|v| v.as_str()).unwrap_or("");
-                                    let matches_loader = if let Some(loader) = loader_type {
-                                        match loader {
-                                            "neoforge" => json_id.starts_with("neoforge-") || dir_name_str.starts_with("neoforge-"),
-                                            "forge" => (json_id.starts_with("forge-") && !json_id.starts_with("neoforge-")) || (dir_name_str.starts_with("forge-") && !dir_name_str.starts_with("neoforge-")),
-                                            "fabric" => json_id.starts_with("fabric-loader-") || dir_name_str.starts_with("fabric-loader-"),
-                                            _ => false,
-                                        }
-                                    } else {
-                                        false
-                                    };
-                                    
-                                    if matches_loader {
-                                        candidate_json = Some((json_path.clone(), json));
-                                        break;
-                                    } else {
-                                        if fallback_json.is_none() {
-                                            fallback_json = Some((json_path.clone(), json));
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        
-        candidate_json.or(fallback_json)
-    });
-    
-    if let Some((json_path, json)) = selected_json {
-        let path = json_path.parent().unwrap();
-        let dir_name = path.file_name().unwrap();
-        let library_directory = instance_dir.join("libraries").to_string_lossy().to_string();
-        let natives_directory = path.join("natives").to_string_lossy().to_string();
-        let version_name = dir_name.to_string_lossy().to_string();
-        let classpath_separator = if cfg!(target_os = "windows") { ";" } else { ":" };
-        
-        if let Some(arguments) = json.get("arguments") {
-            if let Some(jvm_args) = arguments.get("jvm") {
-                if let Some(jvm_array) = jvm_args.as_array() {
-                    for arg in jvm_array {
-                        let arg_str_opt = if let Some(arg_str) = arg.as_str() {
-                            Some(arg_str.to_string())
-                        } else if let Some(obj) = arg.as_object() {
-                            // Conditional arguments - process value
-                            if let Some(value) = obj.get("value") {
-                                if let Some(value_str) = value.as_str() {
-                                    Some(value_str.to_string())
-                                } else if let Some(value_arr) = value.as_array() {
-                                    // If it's an array, take the first value or concatenate
-                                    value_arr.first()
-                                        .and_then(|v| v.as_str())
-                                        .map(|s| s.to_string())
-                                } else {
-                                    None
-                                }
-                            } else {
-                                None
-                            }
-                        } else {
-                            None
-                        };
-                        
-                        if let Some(arg_str) = arg_str_opt {
-                            // Replace ALL placeholders
-                            let processed_arg = arg_str
-                                .replace("${library_directory}", &library_directory)
-                                .replace("${natives_directory}", &natives_directory)
-                                .replace("${classpath_separator}", classpath_separator)
-                                .replace("${version_name}", &version_name)
-                                .replace("${launcher_name}", "ValthorneClient")
-                                .replace("${launcher_version}", "1.0.0")
-                                .replace("${classpath}", ""); // Passed separately, remove
-
-                            // Filter out incompatible arguments. -XstartOnFirstThread is
-                            // dropped here on every platform: build_minecraft_jvm_args
-                            // already adds it on macOS, and it's invalid elsewhere.
-                            if processed_arg == "-XstartOnFirstThread" {
-                                continue;
-                            }
-
-                            // Remove -cp and classpath since it's passed separately
-                            if processed_arg == "-cp" || processed_arg.starts_with("-cp ") {
-                                continue;
-                            }
-                            if processed_arg.contains("${classpath}") || processed_arg == "${classpath}" {
-                                continue;
-                            }
-
-                            // Validate module paths when it's -p (module path)
-                            if processed_arg == "-p" {
-                                additional_args.push(processed_arg);
-                                continue;
-                            }
-
-                            // If the previous argument was -p, validate that the JARs exist and normalize paths
-                            if !additional_args.is_empty() && additional_args.last() == Some(&"-p".to_string()) {
-                                let module_paths: Vec<&str> = processed_arg.split(classpath_separator).collect();
-                                let mut valid_paths = Vec::new();
-
-                                for jar_path in module_paths {
-                                    let jar_path_trimmed = jar_path.trim();
-                                    // Normalize the path: replace / with \ on Windows and strip the \\?\ prefix
-                                    let normalized_path = if cfg!(target_os = "windows") {
-                                        jar_path_trimmed
-                                            .strip_prefix("\\\\?\\").unwrap_or(jar_path_trimmed)
-                                            .replace("/", "\\")
-                                    } else {
-                                        jar_path_trimmed.to_string()
-                                    };
-                                    
-                                    let path = std::path::Path::new(&normalized_path);
-                                    if path.exists() {
-                                        valid_paths.push(normalized_path);
-                                    } else {
-                                    }
-                                }
-                                
-                                if !valid_paths.is_empty() {
-                                    additional_args.pop();
-                                    additional_args.push("-p".to_string());
-                                    let final_module_path = valid_paths.join(classpath_separator);
-                                    additional_args.push(final_module_path);
-                                }
-                                continue;
-                            }
-                            
-                            if !processed_arg.trim().is_empty() {
-                                additional_args.push(processed_arg);
-                            }
-                        }
-                    }
-                    
-                    if !additional_args.is_empty() {
-                        ensure_required_add_opens(loader_type, &mut additional_args);
-                        return additional_args;
-                    }
-                }
-            }
-        }
-    }
-    
-    if additional_args.is_empty() {
-        if let Some(loader) = loader_type {
-            match loader {
-                "neoforge" | "forge" => {
-                    additional_args.extend(vec![
-                        "--add-opens".to_string(),
-                        "java.base/java.lang.invoke=ALL-UNNAMED".to_string(),
-                        "--add-opens".to_string(),
-                        "java.base/java.nio=ALL-UNNAMED".to_string(),
-                        "--add-opens".to_string(),
-                        "java.base/java.lang=ALL-UNNAMED".to_string(),
-                        "--add-opens".to_string(),
-                        "java.base/java.util=ALL-UNNAMED".to_string(),
-                        "--add-opens".to_string(),
-                        "java.base/java.util.concurrent=ALL-UNNAMED".to_string(),
-                        "--add-opens".to_string(),
-                        "java.base/java.util.concurrent.locks=ALL-UNNAMED".to_string(),
-                        "--add-opens".to_string(),
-                        "java.base/java.lang.reflect=ALL-UNNAMED".to_string(),
-                        "--add-opens".to_string(),
-                        "java.base/java.text=ALL-UNNAMED".to_string(),
-                        "--add-opens".to_string(),
-                        "java.base/java.time=ALL-UNNAMED".to_string(),
-                        "--add-opens".to_string(),
-                        "java.base/java.io=ALL-UNNAMED".to_string(),
-                        "--add-opens".to_string(),
-                        "java.base/java.net=ALL-UNNAMED".to_string(),
-                        "--add-opens".to_string(),
-                        "java.base/java.security=ALL-UNNAMED".to_string(),
-                        "--add-opens".to_string(),
-                        "java.base/java.security.cert=ALL-UNNAMED".to_string(),
-                        "--add-opens".to_string(),
-                        "java.base/sun.nio.ch=ALL-UNNAMED".to_string(),
-                        "--add-opens".to_string(),
-                        "java.base/sun.util.calendar=ALL-UNNAMED".to_string(),
-                        "--add-opens".to_string(),
-                        "java.base/java.util.jar=ALL-UNNAMED".to_string(),
-                    ]);
-                }
-                "fabric" => {
-                    additional_args.extend(vec![
-                        "--add-opens".to_string(),
-                        "java.base/java.lang.invoke=ALL-UNNAMED".to_string(),
-                    ]);
-                }
-                _ => {}
-            }
-        }
-    }
-    
-    if !additional_args.is_empty() {
-        ensure_required_add_opens(loader_type, &mut additional_args);
-    }
-    
-    additional_args
+        let json = entry.path().join(format!("{name}.json"));
+        json.exists().then_some(json)
+    })
 }
 
+pub fn select_main_class(instance_dir: &Path) -> String {
+    find_fabric_version_json(instance_dir)
+        .and_then(|path| std::fs::read_to_string(path).ok())
+        .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
+        .and_then(|json| json.get("mainClass").and_then(|v| v.as_str()).map(String::from))
+        .unwrap_or_else(|| "net.fabricmc.loader.impl.launch.knot.KnotClient".to_string())
+}
 
+/// JVM arguments declared by the Fabric profile, plus `-Dfabric.addMods` so the pack's
+/// jars load from `libraries/valthorne` while `mods/` stays free for the player.
+pub fn get_mod_loader_jvm_args(instance_dir: &Path) -> Vec<String> {
+    let mut args = Vec::new();
 
-fn ensure_required_add_opens(loader_type: Option<&str>, args: &mut Vec<String>) {
-    if let Some(loader) = loader_type {
-        if loader == "neoforge" || loader == "forge" {
-            let mut has_all_unnamed = false;
-            for i in 0..args.len().saturating_sub(1) {
-                if args[i] == "--add-opens" {
-                    let next = &args[i + 1];
-                    if next.contains("java.base/java.lang.invoke") && next.contains("ALL-UNNAMED") {
-                        has_all_unnamed = true;
-                        break;
-                    }
-                }
-            }
-            if !has_all_unnamed {
-                args.push("--add-opens".to_string());
-                args.push("java.base/java.lang.invoke=ALL-UNNAMED".to_string());
+    let profile = find_fabric_version_json(instance_dir)
+        .and_then(|path| std::fs::read_to_string(path).ok())
+        .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok());
+
+    if let Some(jvm) = profile.as_ref().and_then(|p| p.get("arguments")).and_then(|a| a.get("jvm")).and_then(|j| j.as_array()) {
+        let library_directory = instance_dir.join("libraries").to_string_lossy().to_string();
+        let separator = if cfg!(target_os = "windows") { ";" } else { ":" };
+        for arg in jvm.iter().filter_map(|a| a.as_str()) {
+            let arg = arg
+                .replace("${library_directory}", &library_directory)
+                .replace("${classpath_separator}", separator)
+                .replace("${launcher_name}", "ValthorneClient")
+                .replace("${launcher_version}", env!("CARGO_PKG_VERSION"));
+            if !arg.trim().is_empty() && !arg.contains("${") {
+                args.push(arg);
             }
         }
     }
+
+    args.push(format!("-Dfabric.addMods={}", crate::dist::mods_store_dir(instance_dir).to_string_lossy()));
+    args
 }
 
 pub fn build_minecraft_jvm_args(
@@ -725,15 +390,5 @@ pub fn get_instance_directory(instance_id: &str) -> PathBuf {
 	crate::utils::valthorne_dir().join(instance_id)
 }
 
-// Launcher directory configuration
-pub struct LauncherConfig {
-    pub minecraft_dir: PathBuf,
-}
-
-impl LauncherConfig {
-    pub fn new() -> Result<Self> {
-        Ok(Self { minecraft_dir: crate::utils::valthorne_dir() })
-    }
-}
 
 
