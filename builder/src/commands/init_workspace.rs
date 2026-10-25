@@ -47,9 +47,9 @@ pub async fn run(workspace: &str) -> Result<()> {
             version: "1.0.0".to_string(),
             // PLACEHOLDER: ajustar a la version real de Minecraft del servidor.
             minecraft_version: "1.21.1".to_string(),
-            // PLACEHOLDER: ajustar tipo/version del mod loader (neoforge/fabric/forge/vanilla).
+            // PLACEHOLDER: ajustar tipo/version del mod loader (fabric/vanilla).
             mod_loader: Some(ModLoader {
-                r#type: "neoforge".to_string(),
+                r#type: "fabric".to_string(),
                 version: "21.1.0".to_string(),
             }),
             launch_settings: LaunchSettings::default(),

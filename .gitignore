@@ -25,3 +25,7 @@ target/
 .vscode/
 src-tauri/Cargo.lock
 /.claude
+
+# Signing keys and local previews
+*.key
+manifest.preview.json

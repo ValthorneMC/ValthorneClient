@@ -24,7 +24,7 @@ pub struct InstanceInfo {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModLoader {
-    pub r#type: String, // "fabric", "forge", "neoforge", "vanilla"
+    pub r#type: String, // "fabric" or "vanilla"
     pub version: String,
 }
 
@@ -56,35 +56,6 @@ pub struct LaunchSettings {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DistributionManifest {
-    pub distribution: DistributionInfo,
-    pub instances: Vec<InstanceSummary>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DistributionInfo {
-    pub name: String,
-    pub version: String,
-    pub description: String,
-    pub base_url: String,
-    pub last_updated: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct InstanceSummary {
-    pub id: String,
-    pub name: String,
-    pub description: String,
-    pub version: String,
-    pub minecraft_version: String,
-    pub icon: Option<String>,
-    pub background: Option<String>,
-    pub background_video: Option<String>,
-    pub last_updated: Option<String>,
-    pub instance_url: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InstanceSettings {
     pub id: String,
     pub name: String,
@@ -110,7 +81,7 @@ pub struct FileTarget {
     pub dest: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct IgnoredFilesConfig {
     /// Patrones glob para archivos a ignorar en mods
     #[serde(default)]
@@ -134,4 +105,33 @@ impl Default for LaunchSettings {
             jvm_args: None,
         }
     }
+}
+
+/// Signed publication format (schema 2): files are content-addressed by SHA-256
+/// and fetched through the distribution Worker.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Manifest {
+    pub schema: u32,
+    pub version: String,
+    pub name: String,
+    pub description: String,
+    pub minecraft_version: String,
+    pub mod_loader: Option<ModLoader>,
+    pub launch_settings: LaunchSettings,
+    pub published_at: String,
+    pub files: Vec<ManifestFile>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ManifestFile {
+    /// Path inside the workspace instance (`mods/x.jar`).
+    pub path: String,
+    /// Install path relative to the game dir; empty for UI assets.
+    pub target: String,
+    /// `mod`, `config`, `resourcepack`, `shaderpack` or `asset`.
+    pub kind: String,
+    /// `managed` is kept in sync; `once` is only written when missing.
+    pub policy: String,
+    pub sha256: String,
+    pub size: u64,
 }

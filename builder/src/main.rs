@@ -26,17 +26,20 @@ enum Commands {
     },
     /// Escanea instances/valthorne y genera instance.json + checksums.json
     Scan,
-    /// Sincroniza a dist/, re-hashea y genera manifest.json + zip de distribucion
-    Package {
-        /// Directorio de salida de la distribucion
-        #[arg(short, long, default_value = "./dist")]
+    /// Genera una clave de firma Ed25519 para el manifiesto
+    Keygen {
+        #[arg(short, long, default_value = "signing.key")]
         output: String,
-        /// URL base donde se publicaran los archivos
-        #[arg(short, long, default_value = "https://files.playvalthorne.com")]
-        base_url: String,
-        /// Version de la distribucion (si no se indica, se intenta leer del manifest.json existente)
+    },
+    /// Hashea la instancia, sube los blobs nuevos a R2 y publica el manifiesto firmado
+    Publish {
+        #[arg(long, default_value = "signing.key")]
+        key: String,
+        #[arg(long, default_value = "valthorne-client")]
+        bucket: String,
+        /// Calcula y firma el manifiesto sin subir nada
         #[arg(long)]
-        version: Option<String>,
+        dry_run: bool,
     },
 }
 
@@ -51,8 +54,11 @@ async fn main() -> Result<()> {
         Commands::Scan => {
             scan_instance::run().await?;
         },
-        Commands::Package { output, base_url, version } => {
-            package::run(output, base_url, version.as_deref()).await?;
+        Commands::Keygen { output } => {
+            keygen::run(output).await?;
+        },
+        Commands::Publish { key, bucket, dry_run } => {
+            publish::run(publish::PublishOptions { key_path: key, bucket, dry_run: *dry_run }).await?;
         },
     }
 
