@@ -8,3 +8,12 @@ BUCKET_NAME = "valthorne-client"
 [[r2_buckets]]
 binding = "BUCKET"
 bucket_name = "valthorne-client"
+
+# Per-IP, per location, and approximate: it only has to stop scraping loops.
+[[ratelimits]]
+name = "LIMITER"
+namespace_id = "1001"
+
+  [ratelimits.simple]
+  limit = 60
+  period = 60

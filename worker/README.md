@@ -1,22 +1,23 @@
 # valthorne-dist
 
 Cloudflare Worker in front of the private R2 bucket `valthorne-client`.
+The pack is public, so there is no account check: URLs are short-lived and requests are rate limited per IP.
 
-| Route | Auth | Purpose |
-|---|---|---|
-| `GET /v1/manifest` | none | Signed manifest (`manifests/latest.json`) |
-| `POST /v1/session` | `Authorization: Bearer <minecraft token>` | 1 h download session for any valid Minecraft account |
-| `POST /v1/sign` | `x-session` | Presigned R2 URLs (15 min) for up to 200 blob hashes |
+| Route | Purpose |
+|---|---|
+| `GET /v1/manifest` | Signed manifest (`manifests/latest.json`) |
+| `POST /v1/sign` | Presigned R2 URLs (15 min) for up to 200 blob hashes |
 
 ## Deploy
+
+Run from this folder, not the repo root:
 
 ```powershell
 pnpm install --ignore-workspace
 pnpm dlx wrangler login
-pnpm dlx wrangler secret put R2_ACCOUNT_ID          # Cloudflare account id
+pnpm dlx wrangler secret put R2_ACCOUNT_ID
 pnpm dlx wrangler secret put R2_ACCESS_KEY_ID       # read-only R2 token
 pnpm dlx wrangler secret put R2_SECRET_ACCESS_KEY   # read-only R2 token
-pnpm dlx wrangler secret put SESSION_SECRET         # node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 pnpm dlx wrangler deploy
 ```
 
