@@ -4,10 +4,9 @@ export interface Env {
   R2_ACCOUNT_ID: string;
   R2_ACCESS_KEY_ID: string;
   R2_SECRET_ACCESS_KEY: string;
-  SESSION_SECRET: string;
+  LIMITER: RateLimit;
 }
 
-const SESSION_TTL_SECS = 3600;
 const URL_TTL_SECS = 900;
 const MAX_HASHES_PER_SIGN = 200;
 const SHA256_RE = /^[0-9a-f]{64}$/;
@@ -17,10 +16,16 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const { pathname } = new URL(request.url);
     try {
-      if (request.method === "GET" && pathname === "/v1/manifest") return await manifest(env);
-      if (request.method === "POST" && pathname === "/v1/session") return await session(request, env);
-      if (request.method === "POST" && pathname === "/v1/sign") return await sign(request, env);
-      return json({ error: "not_found" }, 404);
+      const route =
+        request.method === "GET" && pathname === "/v1/manifest" ? manifest
+        : request.method === "POST" && pathname === "/v1/sign" ? sign
+        : null;
+      if (!route) return json({ error: "not_found" }, 404);
+
+      const client = request.headers.get("cf-connecting-ip") ?? "unknown";
+      if (!(await env.LIMITER.limit({ key: client })).success) return json({ error: "rate_limited" }, 429);
+
+      return await route(request, env);
     } catch (e) {
       console.error(e);
       return json({ error: "internal" }, 500);
@@ -28,8 +33,8 @@ export default {
   },
 };
 
-// Public on purpose: the launcher needs it before login, and it only lists names and hashes.
-async function manifest(env: Env): Promise<Response> {
+// Public on purpose: the pack is public and the manifest only lists names and hashes.
+async function manifest(_request: Request, env: Env): Promise<Response> {
   const object = await env.BUCKET.get("manifests/latest.json");
   if (!object) return json({ error: "no_manifest" }, 404);
   return new Response(object.body, {
@@ -37,19 +42,7 @@ async function manifest(env: Env): Promise<Response> {
   });
 }
 
-async function session(request: Request, env: Env): Promise<Response> {
-  const token = bearer(request);
-  const uuid = token ? await minecraftUuid(token) : null;
-  if (!uuid) return json({ error: "unauthorized" }, 401);
-  return json({ session: await makeSession(uuid, env.SESSION_SECRET), expires_in: SESSION_TTL_SECS });
-}
-
 async function sign(request: Request, env: Env): Promise<Response> {
-  const session = request.headers.get("x-session");
-  if (!session || !(await verifySession(session, env.SESSION_SECRET))) {
-    return json({ error: "unauthorized" }, 401);
-  }
-
   const body = (await request.json().catch(() => null)) as { hashes?: unknown } | null;
   const hashes = body?.hashes;
   if (!Array.isArray(hashes) || hashes.length === 0 || hashes.length > MAX_HASHES_PER_SIGN) {
@@ -65,7 +58,7 @@ async function sign(request: Request, env: Env): Promise<Response> {
     accessKeyId: env.R2_ACCESS_KEY_ID,
     secretAccessKey: env.R2_SECRET_ACCESS_KEY,
     region: "auto",
-    amzDate: new Date().toISOString().replace(/[-:]|.d{3}/g, ""),
+    amzDate: amzNow(),
     expires: URL_TTL_SECS,
   });
   const urls: Record<string, string> = {};
@@ -75,36 +68,9 @@ async function sign(request: Request, env: Env): Promise<Response> {
   return json({ urls, expires_in: URL_TTL_SECS });
 }
 
-async function minecraftUuid(token: string): Promise<string | null> {
-  const res = await fetch("https://api.minecraftservices.com/minecraft/profile", {
-    headers: { authorization: `Bearer ${token}` },
-    signal: AbortSignal.timeout(5000),
-  });
-  if (!res.ok) return null;
-  const profile = (await res.json()) as { id?: string };
-  return typeof profile.id === "string" ? profile.id : null;
-}
-
-function bearer(request: Request): string | null {
-  const header = request.headers.get("authorization");
-  return header?.startsWith("Bearer ") ? header.slice(7) : null;
-}
-
-async function makeSession(uuid: string, secret: string): Promise<string> {
-  const payload = `${uuid}.${Math.floor(Date.now() / 1000) + SESSION_TTL_SECS}`;
-  return `${payload}.${hex(await hmac(enc.encode(secret), payload))}`;
-}
-
-async function verifySession(session: string, secret: string): Promise<boolean> {
-  const parts = session.split(".");
-  if (parts.length !== 3) return false;
-  const [uuid, exp, sig] = parts;
-  if (Number(exp) < Date.now() / 1000) return false;
-  const expected = hex(await hmac(enc.encode(secret), `${uuid}.${exp}`));
-  if (expected.length !== sig.length) return false;
-  let diff = 0;
-  for (let i = 0; i < expected.length; i++) diff |= expected.charCodeAt(i) ^ sig.charCodeAt(i);
-  return diff === 0;
+/** Current time as SigV4 expects it: 20130524T000000Z. */
+export function amzNow(date = new Date()): string {
+  return date.toISOString().replace(/[-:]|\.\d{3}/g, "");
 }
 
 export interface PresignParams {

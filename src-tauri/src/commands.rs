@@ -823,8 +823,7 @@ async fn download_instance_assets_inner(
     }
 
     emit_stage(&app_handle, 90, "Instance");
-    let mc_token = crate::dist::fresh_access_token(&app_handle).await?;
-    crate::dist::sync_instance(&app_handle, &instance_dir, &manifest, &mc_token).await?;
+    crate::dist::sync_instance(&app_handle, &instance_dir, &manifest).await?;
 
     emit_stage(&app_handle, 100, "Completed");
     let _ = app_handle.emit("asset-download-completed", serde_json::json!({ "phase": "complete" }));

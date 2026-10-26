@@ -133,38 +133,7 @@ pub async fn fetch_manifest() -> Result<Manifest, String> {
     }
 }
 
-/// Access token of the active account, refreshed when expired.
-pub async fn fresh_access_token(app: &AppHandle) -> Result<String, String> {
-    let sessions = crate::sessions::SessionManager::new(app).map_err(|e| e.to_string())?;
-    let active = sessions
-        .get_active_session()
-        .await?
-        .ok_or("Inicia sesion antes de descargar la instancia")?;
-
-    match crate::sessions_api::validate_and_refresh_token(app.clone(), active.username).await? {
-        crate::EnsureSessionResponse::Ok { session, .. } => Ok(session.access_token),
-        crate::EnsureSessionResponse::Err { message, .. } => Err(message),
-    }
-}
-
-async fn open_session(client: &reqwest::Client, mc_token: &str) -> Result<String, String> {
-    #[derive(Deserialize)]
-    struct Reply {
-        session: String,
-    }
-    let response = client
-        .post(format!("{}/v1/session", api_url()?))
-        .bearer_auth(mc_token)
-        .send()
-        .await
-        .map_err(|e| format!("Failed to open download session: {e}"))?;
-    if !response.status().is_success() {
-        return Err(format!("Download session refused (HTTP {})", response.status()));
-    }
-    Ok(response.json::<Reply>().await.map_err(|e| e.to_string())?.session)
-}
-
-async fn sign_urls(client: &reqwest::Client, session: &str, hashes: &[String]) -> Result<HashMap<String, String>, String> {
+async fn sign_urls(client: &reqwest::Client, hashes: &[String]) -> Result<HashMap<String, String>, String> {
     #[derive(Deserialize)]
     struct Reply {
         urls: HashMap<String, String>,
@@ -173,7 +142,6 @@ async fn sign_urls(client: &reqwest::Client, session: &str, hashes: &[String]) -
     for batch in hashes.chunks(SIGN_BATCH) {
         let response = client
             .post(format!("{}/v1/sign", api_url()?))
-            .header("x-session", session)
             .json(&serde_json::json!({ "hashes": batch }))
             .send()
             .await
@@ -321,7 +289,7 @@ fn emit_progress(app: &AppHandle, done: u64, total: u64) {
 
 /// Brings the instance in line with the manifest: downloads what is missing or changed,
 /// and removes what the manifest no longer lists. Fails if anything cannot be installed.
-pub async fn sync_instance(app: &AppHandle, instance_dir: &Path, manifest: &Manifest, mc_token: &str) -> Result<(), String> {
+pub async fn sync_instance(app: &AppHandle, instance_dir: &Path, manifest: &Manifest) -> Result<(), String> {
     remove_legacy_mods(instance_dir).await;
 
     let mut jobs: Vec<Job> = Vec::new();
@@ -360,7 +328,7 @@ pub async fn sync_instance(app: &AppHandle, instance_dir: &Path, manifest: &Mani
     }
 
     if !jobs.is_empty() {
-        download_jobs(app, jobs, mc_token, true).await?;
+        download_jobs(app, jobs, true).await?;
     }
 
     prune_mods(&mods_store_dir(instance_dir), &expected_mods);
@@ -368,14 +336,13 @@ pub async fn sync_instance(app: &AppHandle, instance_dir: &Path, manifest: &Mani
     Ok(())
 }
 
-async fn download_jobs(app: &AppHandle, jobs: Vec<Job>, mc_token: &str, report: bool) -> Result<(), String> {
+async fn download_jobs(app: &AppHandle, jobs: Vec<Job>, report: bool) -> Result<(), String> {
     let client = download_client()?;
-    let session = open_session(&client, mc_token).await?;
 
     let mut hashes: Vec<String> = jobs.iter().map(|j| j.sha256.clone()).collect();
     hashes.sort();
     hashes.dedup();
-    let urls = sign_urls(&client, &session, &hashes).await?;
+    let urls = sign_urls(&client, &hashes).await?;
 
     let total: u64 = jobs.iter().map(|j| j.size).sum();
     let progress = Arc::new(AtomicU64::new(0));
@@ -480,8 +447,7 @@ pub async fn ensure_asset(app: &AppHandle, instance_dir: &Path, manifest: &Manif
         return Ok(dest);
     }
 
-    let token = fresh_access_token(app).await?;
-    download_jobs(app, vec![Job { sha256: file.sha256.clone(), size: file.size, dest: dest.clone() }], &token, false).await?;
+    download_jobs(app, vec![Job { sha256: file.sha256.clone(), size: file.size, dest: dest.clone() }], false).await?;
     Ok(dest)
 }
 
