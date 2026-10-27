@@ -127,7 +127,7 @@ async fn launch_minecraft_with_auth(
     jvm_args.extend(crate::launcher::get_runtime_dir_jvm_args(&instance_dir));
     jvm_args.extend(crate::launcher::get_mod_loader_jvm_args(&instance_dir));
     
-    let asset_index_id = ensure_assets_present(app_handle, &instance_dir, minecraft_version).await?;
+    let asset_index_id = ensure_assets_present(app_handle, &instance_dir, minecraft_version, (0.0, 100.0)).await?;
 
     let profile = crate::auth_ms::get_minecraft_profile_from_token(access_token).await
         .map_err(|e| e.to_string())?;

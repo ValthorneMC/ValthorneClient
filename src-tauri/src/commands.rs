@@ -884,7 +884,7 @@ async fn download_instance_assets_inner(
     }
 
     emit_stage(&app_handle, 10, "Mojang");
-    let _ = crate::instances::ensure_assets_present_with_progress(&app_handle, &instance_dir, &minecraft_version, None).await?;
+    let _ = crate::instances::ensure_assets_present(&app_handle, &instance_dir, &minecraft_version, (10.0, 85.0)).await?;
 
     emit_stage(&app_handle, 85, "Libraries");
     crate::instances::ensure_version_libraries(&instance_dir, &minecraft_version).await?;
