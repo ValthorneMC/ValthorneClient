@@ -99,7 +99,7 @@ The game uses its own Java (downloaded automatically into `~/.valthorneclient/ru
 All client data lives in `~/.valthorneclient` (on Windows, `%USERPROFILE%\.valthorneclient`): the instance, the Java runtimes, skins and the client configs.
 
 
-[!NOTE]
+> [!NOTE]
 
 At Valthorne we're open to receive PRs an issues, although we prefer being contacted on Discord before submitting a PR or issue.
 If you aren't in our [Discord](https://discord.playvalthorne.com) (Spanish & English community), you are completely welcome!
