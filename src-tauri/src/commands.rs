@@ -132,9 +132,11 @@ async fn download_java_inner(version: String, app_handle: AppHandle) -> Result<S
     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
     if java_dir.exists() { let _ = std::fs::remove_dir_all(&java_dir); }
 
+    let staging_dir = crate::utils::java_staging_dir(&runtime_dir, &version);
+    let _ = std::fs::remove_dir_all(&staging_dir);
     {
         let app_handle = app_handle.clone();
-        crate::utils::extract_java_archive(&temp_file, &runtime_dir, move |done, total| {
+        crate::utils::extract_java_archive(&temp_file, &staging_dir, move |done, total| {
             // tar.gz reports total = 0 (unknown up front); keep the bar moving anyway
             let extraction_progress = if total > 0 {
                 85 + ((done * 10) / total)
@@ -154,7 +156,7 @@ async fn download_java_inner(version: String, app_handle: AppHandle) -> Result<S
         "status": "Finalizing installation"
     }));
 
-    crate::utils::finalize_extracted_java(&runtime_dir, &java_dir)?;
+    crate::utils::finalize_extracted_java(&staging_dir, &java_dir)?;
     let _ = std::fs::remove_file(&temp_file);
     
     // Emit completed progress

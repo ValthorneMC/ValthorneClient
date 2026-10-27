@@ -115,8 +115,10 @@ async fn download_java_silent(java_version: u8) -> Result<(), String> {
         let _ = std::fs::remove_dir_all(&java_dir);
     }
     
-    crate::utils::extract_java_archive(&temp_file, &runtime_dir, |_, _| {})?;
-    crate::utils::finalize_extracted_java(&runtime_dir, &java_dir)?;
+    let staging_dir = crate::utils::java_staging_dir(&runtime_dir, &version_str);
+    let _ = std::fs::remove_dir_all(&staging_dir);
+    crate::utils::extract_java_archive(&temp_file, &staging_dir, |_, _| {})?;
+    crate::utils::finalize_extracted_java(&staging_dir, &java_dir)?;
 
     let _ = std::fs::remove_file(&temp_file);
     
