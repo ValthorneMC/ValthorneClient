@@ -349,6 +349,33 @@ pub fn get_mod_loader_jvm_args(instance_dir: &Path) -> Vec<String> {
     args
 }
 
+/// Heap sizes in MB. Whole gigabytes used to be truncated (1.5 GB became 1), and a minimum
+/// above the maximum makes the JVM refuse to start, so the minimum is capped at the maximum.
+fn heap_sizes_mb(min_ram_gb: f64, max_ram_gb: f64) -> (u32, u32) {
+	let to_mb = |gb: f64| (gb.max(0.0) * 1024.0).round() as u32;
+	let max_mb = to_mb(max_ram_gb).max(512);
+	let min_mb = to_mb(min_ram_gb).clamp(256, max_mb);
+	(min_mb, max_mb)
+}
+
+/// Where LWJGL, JNA and Netty unpack their native libraries, plus the launcher identity.
+///
+/// Left alone they extract into the system temp dir, which many Linux setups mount
+/// `noexec`; loading the library from there fails with an `UnsatisfiedLinkError`.
+pub fn get_runtime_dir_jvm_args(instance_dir: &Path) -> Vec<String> {
+	let natives = instance_dir.join("natives");
+	let _ = std::fs::create_dir_all(&natives);
+	let natives = natives.to_string_lossy();
+
+	vec![
+		format!("-Dorg.lwjgl.system.SharedLibraryExtractPath={}", natives),
+		format!("-Djna.tmpdir={}", natives),
+		format!("-Dio.netty.native.workdir={}", natives),
+		"-Dminecraft.launcher.brand=ValthorneClient".to_string(),
+		format!("-Dminecraft.launcher.version={}", env!("CARGO_PKG_VERSION")),
+	]
+}
+
 pub fn build_minecraft_jvm_args(
 	access_token: &str,
 	min_ram_gb: f64,
@@ -356,9 +383,10 @@ pub fn build_minecraft_jvm_args(
 	garbage_collector: &str,
 	additional_jvm_args: &str
 ) -> Result<Vec<String>, String> {
+	let (min_mb, max_mb) = heap_sizes_mb(min_ram_gb, max_ram_gb);
 	let mut args = vec![
-		format!("-Xmx{}G", max_ram_gb as u32),
-		format!("-Xms{}G", min_ram_gb as u32),
+		format!("-Xmx{}M", max_mb),
+		format!("-Xms{}M", min_mb),
 		"-XX:+UnlockExperimentalVMOptions".to_string(),
 	];
 
@@ -372,7 +400,7 @@ pub fn build_minecraft_jvm_args(
 
 	match garbage_collector {
 		"G1" => { args.extend(vec!["-XX:+UseG1GC".into(), "-XX:G1NewSizePercent=20".into(), "-XX:G1ReservePercent=20".into(), "-XX:MaxGCPauseMillis=50".into(), "-XX:G1HeapRegionSize=32M".into()]); },
-		"ZGC" => { args.extend(vec!["-XX:+UseZGC".into(), "-XX:+UnlockExperimentalVMOptions".into()]); },
+		"ZGC" => { args.push("-XX:+UseZGC".into()); },
 		"Parallel" => { args.extend(vec!["-XX:+UseParallelGC".into(), "-XX:ParallelGCThreads=4".into()]); },
 		_ => { args.extend(vec!["-XX:+UseG1GC".into(), "-XX:G1NewSizePercent=20".into(), "-XX:G1ReservePercent=20".into(), "-XX:MaxGCPauseMillis=50".into(), "-XX:G1HeapRegionSize=32M".into()]); }
 	}
@@ -392,5 +420,64 @@ pub fn get_instance_directory(instance_id: &str) -> PathBuf {
 	crate::utils::valthorne_dir().join(instance_id)
 }
 
+#[cfg(test)]
+mod tests {
+	use super::*;
 
+	#[test]
+	fn fractional_gigabytes_are_not_truncated() {
+		assert_eq!(heap_sizes_mb(1.5, 4.5), (1536, 4608));
+	}
 
+	#[test]
+	fn minimum_never_exceeds_maximum() {
+		assert_eq!(heap_sizes_mb(8.0, 4.0), (4096, 4096));
+	}
+
+	#[test]
+	fn absurd_values_are_clamped_to_something_bootable() {
+		assert_eq!(heap_sizes_mb(0.0, 0.0), (256, 512));
+		assert_eq!(heap_sizes_mb(-3.0, f64::NAN), (256, 512));
+	}
+
+	#[test]
+	fn jvm_args_use_megabytes_and_a_single_unlock_flag() {
+		let args = build_minecraft_jvm_args("token", 2.0, 6.0, "ZGC", "").unwrap();
+		assert!(args.contains(&"-Xmx6144M".to_string()));
+		assert!(args.contains(&"-Xms2048M".to_string()));
+		assert!(args.contains(&"-XX:+UseZGC".to_string()));
+		assert_eq!(args.iter().filter(|a| *a == "-XX:+UnlockExperimentalVMOptions").count(), 1);
+	}
+
+	#[test]
+	fn unknown_collector_falls_back_to_g1() {
+		let args = build_minecraft_jvm_args("token", 2.0, 4.0, "nonsense", "").unwrap();
+		assert!(args.contains(&"-XX:+UseG1GC".to_string()));
+	}
+
+	#[test]
+	fn user_args_are_split_on_whitespace() {
+		let args = build_minecraft_jvm_args("token", 2.0, 4.0, "G1", "  -Dfoo=1   -Dbar=2 ").unwrap();
+		assert!(args.contains(&"-Dfoo=1".to_string()) && args.contains(&"-Dbar=2".to_string()));
+	}
+
+	#[test]
+	fn natives_are_extracted_inside_the_instance() {
+		let dir = std::env::temp_dir().join(format!("valthorne-test-natives-{}", std::process::id()));
+		let args = get_runtime_dir_jvm_args(&dir);
+		let natives = dir.join("natives");
+		assert!(natives.is_dir());
+		assert!(args.contains(&format!("-Dorg.lwjgl.system.SharedLibraryExtractPath={}", natives.to_string_lossy())));
+		assert!(args.iter().all(|a| a.starts_with("-D")));
+		let _ = std::fs::remove_dir_all(&dir);
+	}
+
+	#[test]
+	fn java_version_follows_the_minecraft_release() {
+		assert_eq!(get_required_java_version_for_minecraft("1.21.1"), 21);
+		assert_eq!(get_required_java_version_for_minecraft("1.20.4"), 17);
+		assert_eq!(get_required_java_version_for_minecraft("1.20.5"), 21);
+		assert_eq!(get_required_java_version_for_minecraft("1.16.5"), 8);
+		assert_eq!(get_required_java_version_for_minecraft("26.1"), 25);
+	}
+}
