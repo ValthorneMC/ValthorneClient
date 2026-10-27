@@ -1044,7 +1044,8 @@ pub async fn load_language() -> Result<String, String> {
 #[tauri::command]
 pub fn get_system_ram() -> Result<u32, String> {
     use sysinfo::System;
-    let mut system = System::new_all();
+    // Only memory is needed; `new_all` would also enumerate every process and disk.
+    let mut system = System::new();
     system.refresh_memory();
     let total_memory_bytes = system.total_memory();
     let total_memory_gb = (total_memory_bytes / (1024 * 1024 * 1024)) as u32;
