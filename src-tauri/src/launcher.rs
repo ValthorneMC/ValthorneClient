@@ -377,7 +377,6 @@ pub fn get_runtime_dir_jvm_args(instance_dir: &Path) -> Vec<String> {
 }
 
 pub fn build_minecraft_jvm_args(
-	access_token: &str,
 	min_ram_gb: f64,
 	max_ram_gb: f64,
 	garbage_collector: &str,
@@ -412,7 +411,6 @@ pub fn build_minecraft_jvm_args(
 	args.push("-Dminecraft.api.account.host=https://api.mojang.com".to_string());
 	args.push("-Dminecraft.api.session.host=https://sessionserver.mojang.com".to_string());
 	args.push("-Dminecraft.api.services.host=https://api.minecraftservices.com".to_string());
-	args.push(format!("-Dminecraft.api.accessToken={}", access_token));
 	Ok(args)
 }
 
@@ -442,7 +440,7 @@ mod tests {
 
 	#[test]
 	fn jvm_args_use_megabytes_and_a_single_unlock_flag() {
-		let args = build_minecraft_jvm_args("token", 2.0, 6.0, "ZGC", "").unwrap();
+		let args = build_minecraft_jvm_args(2.0, 6.0, "ZGC", "").unwrap();
 		assert!(args.contains(&"-Xmx6144M".to_string()));
 		assert!(args.contains(&"-Xms2048M".to_string()));
 		assert!(args.contains(&"-XX:+UseZGC".to_string()));
@@ -450,14 +448,20 @@ mod tests {
 	}
 
 	#[test]
+	fn the_access_token_is_not_exposed_as_a_jvm_property() {
+		let args = build_minecraft_jvm_args(2.0, 4.0, "G1", "").unwrap();
+		assert!(args.iter().all(|a| !a.contains("accessToken")));
+	}
+
+	#[test]
 	fn unknown_collector_falls_back_to_g1() {
-		let args = build_minecraft_jvm_args("token", 2.0, 4.0, "nonsense", "").unwrap();
+		let args = build_minecraft_jvm_args(2.0, 4.0, "nonsense", "").unwrap();
 		assert!(args.contains(&"-XX:+UseG1GC".to_string()));
 	}
 
 	#[test]
 	fn user_args_are_split_on_whitespace() {
-		let args = build_minecraft_jvm_args("token", 2.0, 4.0, "G1", "  -Dfoo=1   -Dbar=2 ").unwrap();
+		let args = build_minecraft_jvm_args(2.0, 4.0, "G1", "  -Dfoo=1   -Dbar=2 ").unwrap();
 		assert!(args.contains(&"-Dfoo=1".to_string()) && args.contains(&"-Dbar=2".to_string()));
 	}
 

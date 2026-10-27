@@ -123,7 +123,7 @@ async fn launch_minecraft_with_auth(
         String::new(), "G1".to_string(), 1280, 720
     ));
     
-    let mut jvm_args = crate::launcher::build_minecraft_jvm_args(access_token, min_ram, max_ram, &gc_config, &jvm_args_config)?;
+    let mut jvm_args = crate::launcher::build_minecraft_jvm_args(min_ram, max_ram, &gc_config, &jvm_args_config)?;
     
     jvm_args.extend(crate::launcher::get_runtime_dir_jvm_args(&instance_dir));
     jvm_args.extend(crate::launcher::get_mod_loader_jvm_args(&instance_dir));
