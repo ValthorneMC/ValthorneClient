@@ -11,6 +11,9 @@ use flate2::{write::GzEncoder, Compression};
 /// always flush immediately regardless of this.
 const FLUSH_EVERY_N_LINES: u32 = 50;
 
+/// Compressed logs older than this are deleted so the log folder cannot grow forever.
+const ARCHIVE_MAX_AGE: std::time::Duration = std::time::Duration::from_secs(30 * 24 * 60 * 60);
+
 pub struct Logger {
     file: Mutex<BufWriter<File>>,
     lines_since_flush: AtomicU32,
@@ -74,7 +77,25 @@ impl Logger {
             }
         }
 
+        Self::remove_expired_archives(&log_dir, std::time::SystemTime::now(), ARCHIVE_MAX_AGE);
+
         Ok(())
+    }
+
+    /// Deletes `.gz` archives in `dir` last modified more than `max_age` before `now`.
+    fn remove_expired_archives(dir: &std::path::Path, now: std::time::SystemTime, max_age: std::time::Duration) {
+        let Ok(entries) = std::fs::read_dir(dir) else { return };
+        for path in entries.flatten().map(|entry| entry.path()) {
+            let is_archive = path.extension().and_then(|s| s.to_str()) == Some("gz");
+            let expired = std::fs::metadata(&path)
+                .and_then(|meta| meta.modified())
+                .ok()
+                .and_then(|modified| now.duration_since(modified).ok())
+                .is_some_and(|age| age > max_age);
+            if is_archive && expired {
+                let _ = std::fs::remove_file(&path);
+            }
+        }
     }
 
     /// Gzip-compresses a log file in place and removes the original.
@@ -148,4 +169,36 @@ pub fn init_logging() -> Result<(), Box<dyn std::error::Error>> {
     log::info!("Log directory: {:?}", Logger::get_log_directory()?);
     
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{Duration, SystemTime};
+
+    fn file_aged(dir: &std::path::Path, name: &str, age: Duration) -> PathBuf {
+        let path = dir.join(name);
+        let file = File::create(&path).unwrap();
+        file.set_modified(SystemTime::now() - age).unwrap();
+        path
+    }
+
+    #[test]
+    fn only_old_archives_are_removed() {
+        let dir = std::env::temp_dir().join(format!("valthorne-test-logs-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let day = Duration::from_secs(24 * 60 * 60);
+        let old_archive = file_aged(&dir, "launcher-old.log.gz", day * 60);
+        let new_archive = file_aged(&dir, "launcher-new.log.gz", day * 3);
+        let old_plain = file_aged(&dir, "launcher-today.log", day * 60);
+
+        Logger::remove_expired_archives(&dir, SystemTime::now(), ARCHIVE_MAX_AGE);
+
+        assert!(!old_archive.exists());
+        assert!(new_archive.exists());
+        assert!(old_plain.exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
