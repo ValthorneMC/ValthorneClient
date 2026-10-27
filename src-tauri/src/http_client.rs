@@ -20,3 +20,12 @@ pub static HTTP_CLIENT: Lazy<Client> = Lazy::new(|| {
         .expect("Failed to create HTTP client")
 });
 
+/// For large files such as the client jar: no total timeout, only stalls abort the transfer.
+pub static HTTP_CLIENT_LONG: Lazy<Client> = Lazy::new(|| {
+    Client::builder()
+        .user_agent(format!("ValthorneClient/{}", env!("CARGO_PKG_VERSION")))
+        .connect_timeout(Duration::from_secs(10))
+        .read_timeout(Duration::from_secs(60))
+        .build()
+        .expect("Failed to create long-transfer HTTP client")
+});

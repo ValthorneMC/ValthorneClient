@@ -61,6 +61,10 @@ pub struct LibraryDownloads {
 pub struct LibraryArtifact {
     pub url: String,
     pub path: String,
+    #[serde(default)]
+    pub sha1: Option<String>,
+    #[serde(default)]
+    pub size: Option<u64>,
 }
 
 // Check if a library is allowed for the current operating system based on rules
