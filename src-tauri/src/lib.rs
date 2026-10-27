@@ -12,6 +12,7 @@ use tauri::{Emitter, Manager};
 use std::os::windows::process::CommandExt;
 
 mod logging;
+mod platform;
 mod sessions;
 mod models;
 mod versions;
@@ -246,6 +247,8 @@ async fn launch_minecraft_with_auth(
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    platform::apply_linux_webkit_workarounds();
+
     #[cfg(debug_assertions)]
     dotenv::dotenv().ok();
 
