@@ -1217,7 +1217,7 @@ function App() {
                         if (result.success) {
                           addToast(t('updater:installedRestart'), 'success');
                         } else {
-                          addToast(t('updater:installFailed'), 'error');
+                          addToast(result.message, 'error');
                         }
                       } catch (error) {
                         addToast(t('updater:installFailed'), 'error');

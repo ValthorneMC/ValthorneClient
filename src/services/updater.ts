@@ -5,6 +5,9 @@ import type { UpdateState, UpdateProgress } from '@/types/updater';
 import { logger } from '@/utils/logger';
 import { i18n } from '@/i18n';
 
+/** Code the backend returns when the app runs from a disk image and cannot replace itself. */
+const MOVE_TO_APPLICATIONS = 'move-to-applications';
+
 export interface UpdateInstallOutcome {
   installed: boolean;
   message: string;
@@ -71,9 +74,14 @@ export class UpdaterService {
   static async installUpdate(): Promise<{ success: boolean; message: string }> {
     try {
       const result = await invoke<UpdateInstallOutcome>('install_update');
+      if (result.installed) {
+        return { success: true, message: result.message };
+      }
       return {
-        success: result.installed,
-        message: result.message
+        success: false,
+        message: result.message === MOVE_TO_APPLICATIONS
+          ? i18n.t('moveToApplications', { ns: 'updater' })
+          : i18n.t('installFailed', { ns: 'updater' })
       };
     } catch (error) {
       console.error('Error installing update:', error);
