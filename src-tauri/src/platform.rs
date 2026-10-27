@@ -5,6 +5,7 @@
 ///
 /// The DMA-BUF renderer breaks on the proprietary NVIDIA driver, and the AppImage ships a
 /// WebKit built against older Mesa than most rolling distros have.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 fn linux_webkit_env(is_appimage: bool, has_nvidia: bool) -> Vec<(&'static str, &'static str)> {
     if is_appimage || has_nvidia {
         vec![("WEBKIT_DISABLE_DMABUF_RENDERER", "1")]
