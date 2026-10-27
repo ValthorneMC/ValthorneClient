@@ -12,6 +12,9 @@ jobs:
       contents: write
     strategy:
       fail-fast: false
+      # Every job rewrites the release's latest.json. Run side by side they overwrite each
+      # other and a platform silently drops out, which leaves its users on the old version.
+      max-parallel: 1
       matrix:
         include:
           - platform: 'macos-latest'
@@ -32,7 +35,7 @@ jobs:
         if: matrix.platform == 'ubuntu-22.04'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libssl-dev libxdo-dev patchelf
 
       - name: Rust setup
         uses: dtolnay/rust-toolchain@stable
@@ -90,3 +93,18 @@ jobs:
           releaseDraft: false
           prerelease: false
 
+  verify-updater-manifest:
+    needs: publish-tauri
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Check that latest.json covers every platform
+        run: |
+          manifest=$(curl -fsSL "https://github.com/${{ github.repository }}/releases/latest/download/latest.json")
+          missing=0
+          for platform in darwin-aarch64 darwin-x86_64 linux-x86_64 windows-x86_64; do
+            if ! echo "$manifest" | jq -e --arg p "$platform" '.platforms | has($p)' > /dev/null; then
+              echo "::error::latest.json has no entry for $platform"
+              missing=1
+            fi
+          done
+          exit $missing

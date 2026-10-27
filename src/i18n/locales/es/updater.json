@@ -2,6 +2,7 @@
   "checkFailed": "Error al verificar actualizaciones",
   "downloadFailed": "Error al descargar la actualización",
   "installFailed": "Error al instalar la actualización",
+  "moveToApplications": "Mueve Valthorne Client a la carpeta Aplicaciones y ábrelo desde allí para poder actualizar.",
   "notDownloaded": "No hay actualización lista para instalar. Descarga la actualización primero.",
   "downloaded": "Actualización descargada. Lista para instalar.",
   "downloadedShort": "Actualización descargada correctamente",

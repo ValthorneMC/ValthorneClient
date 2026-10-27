@@ -7,7 +7,6 @@ import { logger } from '@/utils/logger';
 
 
 import minecraftIcon from '@/assets/icons/minecraft.svg';
-import { modLoaderIconInvertFilter, modLoaderIconSrc } from '@/utils/modLoaderIcon';
 
 interface DistributionManifest {
   distribution: {
@@ -260,38 +259,6 @@ const InstanceView: React.FC<InstanceViewProps> = ({
             >
               <span className="text-white font-semibold text-sm">v{instance.version}</span>
             </span>
-            {instance.mod_loader && (
-              <span 
-                className="px-4 py-2 rounded-2xl border flex items-center space-x-2 shadow-xl backdrop-blur-xl transition-all duration-500 ease-out"
-                style={{
-                  background: 'rgba(0, 0, 0, 0.6)',
-                  backdropFilter: 'blur(24px)',
-                  WebkitBackdropFilter: 'blur(24px)',
-                  boxShadow: '0 8px 32px 0 rgba(0, 0, 0, 0.7)',
-                  borderColor: 'rgba(255, 255, 255, 0.2)',
-                  borderWidth: '1px'
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.35)';
-                  e.currentTarget.style.background = 'rgba(0, 0, 0, 0.65)';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.2)';
-                  e.currentTarget.style.background = 'rgba(0, 0, 0, 0.6)';
-                }}
-              >
-                <img
-                  src={modLoaderIconSrc(instance.mod_loader.type)}
-                  alt=""
-                  className={
-                    modLoaderIconInvertFilter(instance.mod_loader.type)
-                      ? 'h-7 w-16 max-w-[6.5rem] shrink-0 object-contain object-left brightness-0 invert'
-                      : 'h-7 w-16 max-w-[6.5rem] shrink-0 object-contain object-left'
-                  }
-                />
-                <span className="text-white font-semibold text-sm">{instance.mod_loader.version}</span>
-              </span>
-            )}
           </div>
 
           <div className="flex flex-col items-center gap-4">

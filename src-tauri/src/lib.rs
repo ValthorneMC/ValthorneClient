@@ -12,6 +12,7 @@ use tauri::{Emitter, Manager};
 use std::os::windows::process::CommandExt;
 
 mod logging;
+mod platform;
 mod sessions;
 mod models;
 mod versions;
@@ -114,20 +115,6 @@ async fn launch_minecraft_with_auth(
     
     
     let classpath = crate::launcher::build_minecraft_classpath_from_json(&instance_dir, &version_json_path)?;
-    {
-        let mut has_lwjgl = false;
-        for entry in walkdir::WalkDir::new(instance_dir.join("libraries")) {
-            let entry = entry.map_err(|e| e.to_string())?;
-            if entry.file_type().is_file() {
-                let p = entry.path();
-                if p.to_string_lossy().contains("lwjgl") {
-                    has_lwjgl = true;
-                    break;
-                }
-            }
-        }
-        if !has_lwjgl { ensure_minecraft_client_present(&instance_dir, minecraft_version).await?; }
-    }
 
     let min_ram = min_ram_gb.unwrap_or(2.0);
     let max_ram = max_ram_gb.unwrap_or(4.0);
@@ -136,14 +123,12 @@ async fn launch_minecraft_with_auth(
         String::new(), "G1".to_string(), 1280, 720
     ));
     
-    let mut jvm_args = crate::launcher::build_minecraft_jvm_args(access_token, min_ram, max_ram, &gc_config, &jvm_args_config)?;
+    let mut jvm_args = crate::launcher::build_minecraft_jvm_args(min_ram, max_ram, &gc_config, &jvm_args_config)?;
     
-    let mod_loader_jvm_args = crate::launcher::get_mod_loader_jvm_args(&instance_dir);
-    if !mod_loader_jvm_args.is_empty() {
-        jvm_args.extend(mod_loader_jvm_args);
-    }
+    jvm_args.extend(crate::launcher::get_runtime_dir_jvm_args(&instance_dir));
+    jvm_args.extend(crate::launcher::get_mod_loader_jvm_args(&instance_dir));
     
-    let asset_index_id = ensure_assets_present(app_handle, &instance_dir, minecraft_version).await?;
+    let asset_index_id = ensure_assets_present(app_handle, &instance_dir, minecraft_version, (0.0, 100.0)).await?;
 
     let profile = crate::auth_ms::get_minecraft_profile_from_token(access_token).await
         .map_err(|e| e.to_string())?;
@@ -262,6 +247,8 @@ async fn launch_minecraft_with_auth(
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    platform::apply_linux_webkit_workarounds();
+
     #[cfg(debug_assertions)]
     dotenv::dotenv().ok();
 

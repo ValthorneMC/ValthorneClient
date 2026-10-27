@@ -99,6 +99,8 @@ pub fn extract_java_archive(
     dest_dir: &std::path::Path,
     mut on_progress: impl FnMut(usize, usize),
 ) -> Result<(), String> {
+    std::fs::create_dir_all(dest_dir).map_err(|e| format!("Create extraction dir failed: {}", e))?;
+
     let is_zip = archive
         .extension()
         .map_or(false, |e| e.eq_ignore_ascii_case("zip"));
@@ -155,7 +157,8 @@ pub fn extract_java_archive(
 /// Makes every binary under a Java runtime executable.
 ///
 /// A safety net for archives whose permission bits didn't survive extraction —
-/// without it macOS/Linux reject the launch with "Permission denied".
+/// without it macOS/Linux reject the launch with "Permission denied". `lib/jspawnhelper`
+/// is included because the JVM uses it to spawn processes and fails without it.
 pub fn ensure_java_binaries_executable(java_dir: &std::path::Path) {
     #[cfg(unix)]
     {
@@ -165,6 +168,8 @@ pub fn ensure_java_binaries_executable(java_dir: &std::path::Path) {
             java_dir.join("bin"),
             java_dir.join("Contents").join("Home").join("bin"),
             java_dir.join("jre").join("bin"),
+            java_dir.join("lib"),
+            java_dir.join("Contents").join("Home").join("lib"),
         ] {
             let Ok(entries) = std::fs::read_dir(&bin_dir) else { continue };
 
@@ -186,25 +191,30 @@ pub fn ensure_java_binaries_executable(java_dir: &std::path::Path) {
     let _ = java_dir;
 }
 
-/// Finds the JDK directory produced by extracting an archive into `runtime_dir`
-/// and moves it to `java_dir`.
+/// Scratch directory a Java archive is unpacked into before being moved into place.
+///
+/// Kept apart from `runtime_dir` so the other installed runtimes are never mistaken
+/// for the freshly extracted one.
+pub fn java_staging_dir(runtime_dir: &std::path::Path, version: &str) -> PathBuf {
+    runtime_dir.join(format!(".staging-java-{}", version))
+}
+
+/// Moves the JDK directory that extracting an archive into `staging_dir` produced
+/// to `java_dir`, then removes the staging directory.
 ///
 /// Archives unpack to a versioned folder name (`jdk-21.0.5+11`), so the exact name
 /// isn't known before extraction.
 pub fn finalize_extracted_java(
-    runtime_dir: &std::path::Path,
+    staging_dir: &std::path::Path,
     java_dir: &std::path::Path,
 ) -> Result<(), String> {
-    let entries = std::fs::read_dir(runtime_dir)
-        .map_err(|e| format!("Failed to read runtime directory: {}", e))?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| format!("Failed to read directory entries: {}", e))?;
-
-    let extracted_dirs: Vec<_> = entries
-        .into_iter()
+    let mut extracted_dirs: Vec<_> = std::fs::read_dir(staging_dir)
+        .map_err(|e| format!("Failed to read staging directory: {}", e))?
+        .flatten()
         .map(|entry| entry.path())
-        .filter(|path| path.is_dir() && path != java_dir)
+        .filter(|path| path.is_dir())
         .collect();
+    extracted_dirs.sort();
 
     let Some(extracted_dir) = extracted_dirs.first() else {
         return Err("No Java directory found after extraction".to_string());
@@ -215,10 +225,7 @@ pub fn finalize_extracted_java(
     }
     std::fs::rename(extracted_dir, java_dir)
         .map_err(|e| format!("Failed to move Java directory: {}", e))?;
-
-    for dir in extracted_dirs.iter().skip(1) {
-        let _ = std::fs::remove_dir_all(dir);
-    }
+    let _ = std::fs::remove_dir_all(staging_dir);
 
     ensure_java_binaries_executable(java_dir);
 
@@ -251,3 +258,76 @@ pub fn matches_glob_patterns(file_path: &str, patterns: &[String]) -> bool {
     false
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn scratch(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("valthorne-test-{}-{}", name, std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn installing_a_java_keeps_the_other_runtimes() {
+        let runtime = scratch("keeps-runtimes");
+        let other = runtime.join("java-17");
+        std::fs::create_dir_all(other.join("bin")).unwrap();
+        std::fs::write(other.join("bin").join("java"), "17").unwrap();
+
+        let staging = java_staging_dir(&runtime, "21");
+        let jdk = staging.join("jdk-21.0.5+11").join("bin");
+        std::fs::create_dir_all(&jdk).unwrap();
+        std::fs::write(jdk.join("java"), "21").unwrap();
+
+        let java_dir = runtime.join("java-21");
+        finalize_extracted_java(&staging, &java_dir).unwrap();
+
+        assert_eq!(std::fs::read_to_string(java_dir.join("bin").join("java")).unwrap(), "21");
+        assert_eq!(std::fs::read_to_string(other.join("bin").join("java")).unwrap(), "17");
+        assert!(!staging.exists());
+        let _ = std::fs::remove_dir_all(&runtime);
+    }
+
+    #[test]
+    fn reinstalling_replaces_the_previous_copy() {
+        let runtime = scratch("reinstall");
+        let java_dir = runtime.join("java-21");
+        std::fs::create_dir_all(&java_dir).unwrap();
+        std::fs::write(java_dir.join("stale"), "old").unwrap();
+
+        let staging = java_staging_dir(&runtime, "21");
+        std::fs::create_dir_all(staging.join("jdk-21").join("bin")).unwrap();
+        finalize_extracted_java(&staging, &java_dir).unwrap();
+
+        assert!(!java_dir.join("stale").exists());
+        assert!(java_dir.join("bin").is_dir());
+        let _ = std::fs::remove_dir_all(&runtime);
+    }
+
+    #[test]
+    fn an_empty_archive_is_an_error() {
+        let runtime = scratch("empty");
+        let staging = java_staging_dir(&runtime, "21");
+        std::fs::create_dir_all(&staging).unwrap();
+        assert!(finalize_extracted_java(&staging, &runtime.join("java-21")).is_err());
+        let _ = std::fs::remove_dir_all(&runtime);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn jspawnhelper_becomes_executable() {
+        use std::os::unix::fs::PermissionsExt;
+        let java = scratch("exec-bits");
+        std::fs::create_dir_all(java.join("lib")).unwrap();
+        let helper = java.join("lib").join("jspawnhelper");
+        std::fs::write(&helper, "").unwrap();
+        std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o644)).unwrap();
+
+        ensure_java_binaries_executable(&java);
+
+        assert_eq!(std::fs::metadata(&helper).unwrap().permissions().mode() & 0o111, 0o111);
+        let _ = std::fs::remove_dir_all(&java);
+    }
+}

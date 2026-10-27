@@ -132,9 +132,11 @@ async fn download_java_inner(version: String, app_handle: AppHandle) -> Result<S
     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
     if java_dir.exists() { let _ = std::fs::remove_dir_all(&java_dir); }
 
+    let staging_dir = crate::utils::java_staging_dir(&runtime_dir, &version);
+    let _ = std::fs::remove_dir_all(&staging_dir);
     {
         let app_handle = app_handle.clone();
-        crate::utils::extract_java_archive(&temp_file, &runtime_dir, move |done, total| {
+        crate::utils::extract_java_archive(&temp_file, &staging_dir, move |done, total| {
             // tar.gz reports total = 0 (unknown up front); keep the bar moving anyway
             let extraction_progress = if total > 0 {
                 85 + ((done * 10) / total)
@@ -154,7 +156,7 @@ async fn download_java_inner(version: String, app_handle: AppHandle) -> Result<S
         "status": "Finalizing installation"
     }));
 
-    crate::utils::finalize_extracted_java(&runtime_dir, &java_dir)?;
+    crate::utils::finalize_extracted_java(&staging_dir, &java_dir)?;
     let _ = std::fs::remove_file(&temp_file);
     
     // Emit completed progress
@@ -418,6 +420,69 @@ pub struct PendingUpdate {
 
 pub type PendingUpdateState = Arc<Mutex<Option<PendingUpdate>>>;
 
+/// Code `install_update` reports when the app cannot replace itself where it is running.
+pub const MOVE_TO_APPLICATIONS: &str = "move-to-applications";
+
+/// Whole-percent progress from the updater's per-chunk callback, which only reports the
+/// size of each chunk. Yields a value only when the percentage changes, so the frontend
+/// gets about a hundred events instead of one per network chunk.
+#[derive(Default)]
+struct DownloadProgress {
+    received: u64,
+    last: Option<u32>,
+}
+
+impl DownloadProgress {
+    fn advance(&mut self, chunk: usize, total: Option<u64>) -> Option<u32> {
+        self.received += chunk as u64;
+        let total = total.filter(|t| *t > 0)?;
+        let percentage = (self.received.min(total) * 100 / total) as u32;
+        if self.last == Some(percentage) {
+            return None;
+        }
+        self.last = Some(percentage);
+        Some(percentage)
+    }
+}
+
+/// True when the app runs straight from a mounted disk image (`/Volumes/<name>/App.app`)
+/// or from Gatekeeper's translocation sandbox. Both are read-only, so the updater can
+/// never swap the bundle and the update would fail after being downloaded.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn is_unreplaceable_mac_location(exe: &std::path::Path) -> bool {
+    use std::path::Component;
+
+    let parts: Vec<_> = exe.components().filter_map(|c| match c {
+        Component::Normal(name) => Some(name.to_string_lossy().to_string()),
+        _ => None,
+    }).collect();
+
+    let translocated = parts.iter().any(|p| p == "AppTranslocation");
+    let on_disk_image = parts.first().is_some_and(|p| p == "Volumes")
+        && parts.get(2).is_some_and(|p| p.ends_with(".app"));
+
+    translocated || on_disk_image
+}
+
+fn install_location_blocks_update() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        return std::env::current_exe().map(|exe| is_unreplaceable_mac_location(&exe)).unwrap_or(false);
+    }
+    #[cfg(not(target_os = "macos"))]
+    false
+}
+
+/// Records what a check found. A download already held in memory for the same version
+/// stays marked as ready, so the periodic check does not throw it away and fetch it again.
+fn record_check_result(state: &mut UpdateState, available: Option<&str>, download_cached: bool) {
+    state.available_version = available.map(str::to_string);
+    let keep_download = available.is_some() && download_cached;
+    state.downloaded = keep_download;
+    state.download_ready = keep_download;
+    state.manual_download = keep_download && state.manual_download;
+}
+
 #[tauri::command]
 pub async fn check_for_updates(app_handle: AppHandle, pending: State<'_, PendingUpdateState>) -> Result<String, String> {
     use tauri_plugin_updater::UpdaterExt;
@@ -430,22 +495,23 @@ pub async fn check_for_updates(app_handle: AppHandle, pending: State<'_, Pending
         Ok(update) => {
             if let Some(update) = update {
                 // Drop a cached download if it's for a different version.
-                if let Ok(mut slot) = pending.lock() {
-                    if slot.as_ref().is_some_and(|p| p.update.version != update.version) {
-                        *slot = None;
+                let download_cached = match pending.lock() {
+                    Ok(mut slot) => {
+                        if slot.as_ref().is_some_and(|p| p.update.version != update.version) {
+                            *slot = None;
+                        }
+                        slot.is_some()
                     }
-                }
-                state.available_version = Some(update.version.clone());
-                state.downloaded = false;
-                state.download_ready = false;
-                state.manual_download = false;
+                    Err(_) => false,
+                };
+                record_check_result(&mut state, Some(&update.version), download_cached);
                 save_update_state(&state).await?;
                 Ok(format!("Update available: {}", update.version))
             } else {
-                state.available_version = None;
-                state.downloaded = false;
-                state.download_ready = false;
-                state.manual_download = false;
+                if let Ok(mut slot) = pending.lock() {
+                    *slot = None;
+                }
+                record_check_result(&mut state, None, false);
                 save_update_state(&state).await?;
                 Ok("No updates available".to_string())
             }
@@ -460,6 +526,13 @@ pub async fn check_for_updates(app_handle: AppHandle, pending: State<'_, Pending
 #[tauri::command]
 pub async fn install_update(app_handle: AppHandle, pending: State<'_, PendingUpdateState>) -> Result<UpdateInstallOutcome, String> {
     use tauri_plugin_updater::UpdaterExt;
+
+    if install_location_blocks_update() {
+        return Ok(UpdateInstallOutcome {
+            installed: false,
+            message: MOVE_TO_APPLICATIONS.to_string(),
+        });
+    }
 
     // Reuse the `Update` that downloaded `bytes` instead of re-checking.
     let cached = pending.lock().ok().and_then(|mut slot| slot.take());
@@ -499,14 +572,13 @@ pub async fn install_update(app_handle: AppHandle, pending: State<'_, PendingUpd
         }
         None => {
             log::info!("No cached package for {}, downloading before install", update.version);
+            let mut progress = DownloadProgress::default();
             update
                 .download_and_install(
                     |chunk_length, content_length| {
-                        let percentage = match content_length {
-                            Some(total) if total > 0 => ((chunk_length as f64 / total as f64) * 100.0) as u32,
-                            _ => 0,
-                        };
-                        let _ = app_handle.emit("update-download-progress", percentage);
+                        if let Some(percentage) = progress.advance(chunk_length, content_length) {
+                            let _ = app_handle.emit("update-download-progress", percentage);
+                        }
                     },
                     || {
                         let _ = app_handle.emit("update-install-complete", ());
@@ -732,14 +804,12 @@ pub async fn download_update_silent(
             let _ = app_handle.emit("update-download-start", ());
 
             // Download the update with callbacks to report progress
+            let mut progress = DownloadProgress::default();
             let bytes = update.download(
                 |chunk_length, content_length| {
-                    let percentage = if let Some(total) = content_length {
-                        ((chunk_length as f64 / total as f64) * 100.0) as u32
-                    } else {
-                        0
-                    };
-                    let _ = app_handle.emit("update-download-progress", percentage);
+                    if let Some(percentage) = progress.advance(chunk_length, content_length) {
+                        let _ = app_handle.emit("update-download-progress", percentage);
+                    }
                 },
                 || {
                     let _ = app_handle.emit("update-download-complete", ());
@@ -814,7 +884,7 @@ async fn download_instance_assets_inner(
     }
 
     emit_stage(&app_handle, 10, "Mojang");
-    let _ = crate::instances::ensure_assets_present_with_progress(&app_handle, &instance_dir, &minecraft_version, None).await?;
+    let _ = crate::instances::ensure_assets_present(&app_handle, &instance_dir, &minecraft_version, (10.0, 85.0)).await?;
 
     emit_stage(&app_handle, 85, "Libraries");
     crate::instances::ensure_version_libraries(&instance_dir, &minecraft_version).await?;
@@ -974,7 +1044,8 @@ pub async fn load_language() -> Result<String, String> {
 #[tauri::command]
 pub fn get_system_ram() -> Result<u32, String> {
     use sysinfo::System;
-    let mut system = System::new_all();
+    // Only memory is needed; `new_all` would also enumerate every process and disk.
+    let mut system = System::new();
     system.refresh_memory();
     let total_memory_bytes = system.total_memory();
     let total_memory_gb = (total_memory_bytes / (1024 * 1024 * 1024)) as u32;
@@ -1295,5 +1366,79 @@ mod update_state_tests {
     fn keeps_state_without_pending_version() {
         let mut s = state(None, "1.0.8");
         assert!(!discard_stale_update_state(&mut s));
+    }
+}
+
+#[cfg(test)]
+mod updater_flow_tests {
+    use super::{is_unreplaceable_mac_location, record_check_result, DownloadProgress};
+    use crate::models::UpdateState;
+    use std::path::Path;
+
+    #[test]
+    fn progress_accumulates_chunks_and_reports_each_percentage_once() {
+        let mut progress = DownloadProgress::default();
+        assert_eq!(progress.advance(250, Some(1000)), Some(25));
+        assert_eq!(progress.advance(1, Some(1000)), None);
+        assert_eq!(progress.advance(249, Some(1000)), Some(50));
+        assert_eq!(progress.advance(500, Some(1000)), Some(100));
+    }
+
+    #[test]
+    fn progress_never_exceeds_one_hundred_or_divides_by_zero() {
+        let mut progress = DownloadProgress::default();
+        assert_eq!(progress.advance(2000, Some(1000)), Some(100));
+        assert_eq!(DownloadProgress::default().advance(10, None), None);
+        assert_eq!(DownloadProgress::default().advance(10, Some(0)), None);
+    }
+
+    #[test]
+    fn disk_image_and_translocated_launches_cannot_self_update() {
+        let dmg = Path::new("/Volumes/Valthorne Client/Valthorne Client.app/Contents/MacOS/valthorneclient");
+        let moved = Path::new("/private/var/folders/xy/T/AppTranslocation/ABC/d/Valthorne Client.app/Contents/MacOS/valthorneclient");
+        assert!(is_unreplaceable_mac_location(dmg));
+        assert!(is_unreplaceable_mac_location(moved));
+    }
+
+    #[test]
+    fn installed_apps_can_self_update() {
+        let applications = Path::new("/Applications/Valthorne Client.app/Contents/MacOS/valthorneclient");
+        let external = Path::new("/Volumes/Games/Applications/Valthorne Client.app/Contents/MacOS/valthorneclient");
+        assert!(!is_unreplaceable_mac_location(applications));
+        assert!(!is_unreplaceable_mac_location(external));
+    }
+
+    fn state() -> UpdateState {
+        UpdateState {
+            downloaded: true,
+            download_ready: true,
+            manual_download: true,
+            available_version: Some("1.0.0".into()),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn a_cached_download_survives_a_recheck_of_the_same_version() {
+        let mut s = state();
+        record_check_result(&mut s, Some("1.0.0"), true);
+        assert!(s.downloaded && s.download_ready && s.manual_download);
+        assert_eq!(s.available_version.as_deref(), Some("1.0.0"));
+    }
+
+    #[test]
+    fn a_missing_download_is_marked_as_not_ready() {
+        let mut s = state();
+        record_check_result(&mut s, Some("1.0.1"), false);
+        assert!(!s.downloaded && !s.download_ready && !s.manual_download);
+        assert_eq!(s.available_version.as_deref(), Some("1.0.1"));
+    }
+
+    #[test]
+    fn no_update_clears_everything() {
+        let mut s = state();
+        record_check_result(&mut s, None, true);
+        assert_eq!(s.available_version, None);
+        assert!(!s.downloaded && !s.download_ready);
     }
 }

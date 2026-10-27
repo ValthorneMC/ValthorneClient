@@ -225,12 +225,12 @@ mod tests {
     fn rejects_wrong_dimensions() {
         let png_data = make_solid_png(100, 50);
         let err = normalize_skin_texture(&png_data).unwrap_err();
-        assert!(err.contains("64x64"));
+        assert_eq!(err, "error.skin.invalid_size|100x50");
     }
 
     #[test]
     fn rejects_non_png() {
         let err = normalize_skin_texture(b"not a png").unwrap_err();
-        assert!(err.contains("PNG"));
+        assert_eq!(err, "error.skin.not_png");
     }
 }

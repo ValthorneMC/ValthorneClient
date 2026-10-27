@@ -40,6 +40,31 @@ pub async fn download_file(url: &str, file_path: &Path) -> Result<(), String> {
 }
 
 pub async fn download_file_with_client(client: &reqwest::Client, url: &str, file_path: &Path) -> Result<(), String> {
+    download_file_checked(client, url, file_path, None).await
+}
+
+fn hex_digest(bytes: impl AsRef<[u8]>) -> String {
+    bytes.as_ref().iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// True when the file on disk is the size Mojang's metadata promises (or the size is unknown).
+fn size_matches(path: &Path, expected: Option<u64>) -> bool {
+    match (std::fs::metadata(path), expected) {
+        (Ok(meta), Some(size)) => meta.len() == size,
+        (Ok(_), None) => true,
+        (Err(_), _) => false,
+    }
+}
+
+/// Downloads `url` to `file_path`, checking the SHA-1 Mojang publishes when one is given.
+/// A mismatch deletes the temp file and fails, so a truncated or tampered file never lands.
+pub async fn download_file_checked(
+    client: &reqwest::Client,
+    url: &str,
+    file_path: &Path,
+    expected_sha1: Option<&str>,
+) -> Result<(), String> {
+    use sha1::{Digest, Sha1};
     use tokio::io::AsyncWriteExt;
 
     let mut response = client
@@ -66,9 +91,13 @@ pub async fn download_file_with_client(client: &reqwest::Client, url: &str, file
     // Stream chunk-by-chunk instead of buffering the whole body: with 50-100 downloads
     // running in parallel, buffering full files (mods/assets can be 100+ MB) caused
     // multi-GB memory spikes.
+    let mut hasher = Sha1::new();
     while let Some(chunk) = response.chunk().await
         .map_err(|e| format!("Failed to read response bytes from {}: {}", url, e))?
     {
+        if expected_sha1.is_some() {
+            hasher.update(&chunk);
+        }
         tmp_file.write_all(&chunk).await
             .map_err(|e| format!("Failed to write bytes to {}: {}", tmp_path.display(), e))?;
     }
@@ -82,6 +111,14 @@ pub async fn download_file_with_client(client: &reqwest::Client, url: &str, file
         .await
         .map_err(|e| format!("Failed to sync temp file {}: {}", tmp_path.display(), e))?;
     drop(tmp_file);
+
+    if let Some(expected) = expected_sha1 {
+        let actual = hex_digest(hasher.finalize());
+        if !actual.eq_ignore_ascii_case(expected) {
+            let _ = tokio::fs::remove_file(&tmp_path).await;
+            return Err(format!("Checksum mismatch for {}: expected {}, got {}", url, expected, actual));
+        }
+    }
 
     tokio::fs::rename(&tmp_path, file_path)
         .await
@@ -118,12 +155,23 @@ pub async fn download_file_with_retry(url: &str, file_path: &Path) -> Result<(),
 }
 
 pub async fn download_file_with_retry_and_client(client: &reqwest::Client, url: &str, file_path: &Path) -> Result<(), String> {
+    download_file_checked_with_retry(client, url, file_path, None).await
+}
+
+pub async fn download_file_checked_with_retry(
+    client: &reqwest::Client,
+    url: &str,
+    file_path: &Path,
+    expected_sha1: Option<&str>,
+) -> Result<(), String> {
     const MAX_RETRIES: u32 = 3;
 
+    let mut last_error = String::new();
     for attempt in 1..=MAX_RETRIES {
-        match download_file_with_client(client, url, file_path).await {
+        match download_file_checked(client, url, file_path, expected_sha1).await {
             Ok(_) => return Ok(()),
-            Err(_e) => {
+            Err(e) => {
+                last_error = e;
                 if attempt < MAX_RETRIES {
                     tokio::time::sleep(retry_backoff(attempt)).await;
                 }
@@ -131,7 +179,24 @@ pub async fn download_file_with_retry_and_client(client: &reqwest::Client, url: 
         }
     }
 
-    Err(format!("Failed to download {} after {} attempts", url, MAX_RETRIES))
+    Err(format!("Failed to download {} after {} attempts: {}", url, MAX_RETRIES, last_error))
+}
+
+/// SHA-1 and size Mojang lists for the client jar in a version JSON.
+fn client_jar_checksum(version_json: &str) -> (Option<String>, Option<u64>) {
+    #[derive(serde::Deserialize)]
+    struct Client { sha1: Option<String>, size: Option<u64> }
+    #[derive(serde::Deserialize)]
+    struct Downloads { client: Option<Client> }
+    #[derive(serde::Deserialize)]
+    struct Version { downloads: Option<Downloads> }
+
+    serde_json::from_str::<Version>(version_json)
+        .ok()
+        .and_then(|v| v.downloads)
+        .and_then(|d| d.client)
+        .map(|c| (c.sha1, c.size))
+        .unwrap_or_default()
 }
 
 pub async fn ensure_minecraft_client_present(instance_dir: &Path, mc_version: &str) -> Result<(), String> {
@@ -144,7 +209,7 @@ pub async fn ensure_minecraft_client_present(instance_dir: &Path, mc_version: &s
 
     if !json_path.exists() {
         let manifest_url = "https://launchermeta.mojang.com/mc/game/version_manifest.json";
-        let manifest_text = reqwest::get(manifest_url).await
+        let manifest_text = crate::http_client::HTTP_CLIENT.get(manifest_url).send().await
             .map_err(|e| format!("Failed to fetch Mojang manifest: {}", e))?
             .text().await
             .map_err(|e| format!("Failed to read Mojang manifest: {}", e))?;
@@ -160,7 +225,7 @@ pub async fn ensure_minecraft_client_present(instance_dir: &Path, mc_version: &s
             return Err(format!("Minecraft version {} not found in Mojang manifest", mc_version));
         };
 
-        let vjson_text = reqwest::get(&ver.url).await
+        let vjson_text = crate::http_client::HTTP_CLIENT.get(&ver.url).send().await
             .map_err(|e| format!("Failed to fetch version json: {}", e))?
             .text().await
             .map_err(|e| format!("Failed to read version json: {}", e))?;
@@ -168,7 +233,12 @@ pub async fn ensure_minecraft_client_present(instance_dir: &Path, mc_version: &s
             .map_err(|e| format!("Failed to write version json: {}", e))?;
     }
 
-    if !jar_path.exists() {
+    let vjson_text_for_jar = tokio::fs::read_to_string(&json_path).await.ok();
+    let (jar_sha1, jar_size) = vjson_text_for_jar
+        .as_deref()
+        .map(client_jar_checksum)
+        .unwrap_or_default();
+    if !jar_path.exists() || !size_matches(&jar_path, jar_size) {
         let vjson_text = tokio::fs::read_to_string(&json_path).await
             .map_err(|e| format!("Failed to read version json: {}", e))?;
         #[derive(serde::Deserialize)]
@@ -180,7 +250,7 @@ pub async fn ensure_minecraft_client_present(instance_dir: &Path, mc_version: &s
         let vj: Vj = serde_json::from_str(&vjson_text)
             .map_err(|e| format!("Failed to parse version json: {}", e))?;
         if let Some(url) = vj.downloads.and_then(|d| d.client).map(|c| c.url) {
-            download_file_with_retry(&url, &jar_path).await?;
+            download_file_checked_with_retry(&crate::http_client::HTTP_CLIENT_LONG, &url, &jar_path, jar_sha1.as_deref()).await?;
         } else {
             return Err("Client download URL not found in version json".to_string());
         }
@@ -188,153 +258,87 @@ pub async fn ensure_minecraft_client_present(instance_dir: &Path, mc_version: &s
     Ok(())
 }
 
-pub async fn ensure_version_libraries(instance_dir: &Path, mc_version: &str) -> Result<(), String> {
-    let version_dir = instance_dir.join("versions").join(mc_version);
-    let json_path = version_dir.join(format!("{}.json", mc_version));
-    if !json_path.exists() { return Err(format!("Version json not found: {}", json_path.display())); }
-    let version_data = tokio::fs::read_to_string(&json_path).await.map_err(|e| e.to_string())?;
+/// Concurrent connections for batches of small downloads. Capped because macOS gives GUI
+/// apps only 256 file descriptors by default, and a hundred sockets plus open files blows past it.
+fn download_parallelism(items: usize) -> usize {
+    (num_cpus::get() * 4).clamp(16, 32).min(items.max(1))
+}
+
+fn bulk_download_client() -> Result<reqwest::Client, String> {
+    reqwest::Client::builder()
+        .user_agent("ValthorneClient/1.0")
+        .connect_timeout(std::time::Duration::from_secs(10))
+        .timeout(std::time::Duration::from_secs(120))
+        .pool_max_idle_per_host(32)
+        .pool_idle_timeout(std::time::Duration::from_secs(60))
+        .tcp_nodelay(true)
+        .build()
+        .map_err(|e| format!("Failed to build HTTP client: {}", e))
+}
+
+/// Downloads `(url, destination)` pairs in parallel. Individual failures are logged, not fatal.
+async fn download_all(downloads: Vec<(String, PathBuf, Option<String>)>, label: &str) -> Result<(), String> {
+    use futures_util::stream::{self, StreamExt};
+
+    if downloads.is_empty() {
+        return Ok(());
+    }
+    let parallel = download_parallelism(downloads.len());
+    let client = bulk_download_client()?;
+
+    let results: Vec<Result<(), String>> = stream::iter(downloads)
+        .map(|(url, path, sha1)| {
+            let client = client.clone();
+            async move { download_file_checked_with_retry(&client, &url, &path, sha1.as_deref()).await }
+        })
+        .buffer_unordered(parallel)
+        .collect()
+        .await;
+
+    for error in results.into_iter().filter_map(Result::err) {
+        log::warn!("Error downloading {}: {}", label, error);
+    }
+    Ok(())
+}
+
+/// Libraries of a version JSON that apply to this platform and are not on disk yet.
+async fn missing_libraries(instance_dir: &Path, json_path: &Path) -> Result<Vec<(String, PathBuf, Option<String>)>, String> {
     #[derive(serde::Deserialize)]
     struct VersionJson { libraries: Vec<crate::versions::Library> }
+
+    let version_data = tokio::fs::read_to_string(json_path).await.map_err(|e| e.to_string())?;
     let vj: VersionJson = serde_json::from_str(&version_data).map_err(|e| e.to_string())?;
     let os_name = crate::utils::minecraft_os_name();
     let os_arch = crate::utils::minecraft_os_arch();
 
-    // Prepare list of libraries to download in parallel
-    let mut libraries_to_download: Vec<(String, std::path::PathBuf)> = Vec::new();
-
-    for lib in vj.libraries.iter() {
+    let mut missing = Vec::new();
+    for lib in &vj.libraries {
         if !crate::versions::is_library_allowed(lib, os_name, os_arch) { continue; }
-        if let Some(downloads) = &lib.downloads {
-            if let Some(artifact) = &downloads.artifact {
-                let lib_path = instance_dir.join("libraries").join(&artifact.path);
-                if let Some(parent) = lib_path.parent() {
-                    tokio::fs::create_dir_all(parent).await.map_err(|e| e.to_string())?;
-                }
-                if !lib_path.exists() {
-                    libraries_to_download.push((artifact.url.clone(), lib_path));
-                }
-            }
+        let Some(artifact) = lib.downloads.as_ref().and_then(|d| d.artifact.as_ref()) else { continue };
+        let lib_path = instance_dir.join("libraries").join(&artifact.path);
+        if !size_matches(&lib_path, artifact.size) {
+            missing.push((artifact.url.clone(), lib_path, artifact.sha1.clone()));
         }
     }
+    Ok(missing)
+}
 
-    // Download libraries in parallel
-    if !libraries_to_download.is_empty() {
-        use futures_util::stream::{self, StreamExt};
-        let parallel = num_cpus::get().saturating_mul(6).max(30).min(libraries_to_download.len());
-
-        let client = std::sync::Arc::new(reqwest::Client::builder()
-            .user_agent("ValthorneClient/1.0")
-            .connect_timeout(std::time::Duration::from_secs(5))
-            .timeout(std::time::Duration::from_secs(120))
-            .pool_max_idle_per_host(40)
-            .pool_idle_timeout(std::time::Duration::from_secs(60))
-            .tcp_nodelay(true)
-            .build()
-            .map_err(|e| format!("Failed to build HTTP client: {}", e))?);
-
-        let results: Vec<Result<(), String>> = stream::iter(libraries_to_download.into_iter())
-            .map(|(url, path)| {
-                let client = client.clone();
-                async move {
-                    download_file_with_retry_and_client(&client, &url, &path).await
-                }
-            })
-            .buffer_unordered(parallel)
-            .collect()
-            .await;
-
-        // Log errors but don't fail completely
-        for result in results {
-            if let Err(e) = result {
-                log::warn!("Error downloading library: {}", e);
-            }
-        }
-    }
-
-    Ok(())
+pub async fn ensure_version_libraries(instance_dir: &Path, mc_version: &str) -> Result<(), String> {
+    let json_path = instance_dir.join("versions").join(mc_version).join(format!("{}.json", mc_version));
+    if !json_path.exists() { return Err(format!("Version json not found: {}", json_path.display())); }
+    download_all(missing_libraries(instance_dir, &json_path).await?, "library").await
 }
 
 /// Downloads the libraries from the mod loader JSON (Fabric)
 /// This is CRITICAL because mod loaders like Fabric adds their own library versions
 /// Example: Fabric uses asm-9.9 instead of vanilla MC's asm-9.6
 pub async fn ensure_mod_loader_libraries(instance_dir: &Path, version_id: &str) -> Result<(), String> {
-    let version_dir = instance_dir.join("versions").join(version_id);
-    let json_path = version_dir.join(format!("{}.json", version_id));
-    
+    let json_path = instance_dir.join("versions").join(version_id).join(format!("{}.json", version_id));
     if !json_path.exists() {
         // No mod loader JSON, do nothing (vanilla)
         return Ok(());
     }
-    
-    let version_data = tokio::fs::read_to_string(&json_path).await.map_err(|e| e.to_string())?;
-    
-    #[derive(serde::Deserialize)]
-    struct VersionJson {
-        libraries: Vec<crate::versions::Library>
-    }
-    
-    let vj: VersionJson = serde_json::from_str(&version_data).map_err(|e| e.to_string())?;
-    let os_name = crate::utils::minecraft_os_name();
-    let os_arch = crate::utils::minecraft_os_arch();
-    
-    // Prepare list of mod loader libraries to download in parallel
-    let mut mod_loader_libraries_to_download: Vec<(String, std::path::PathBuf)> = Vec::new();
-
-    for lib in vj.libraries.iter() {
-        if !crate::versions::is_library_allowed(lib, os_name, os_arch) {
-            continue;
-        }
-
-        if let Some(downloads) = &lib.downloads {
-            if let Some(artifact) = &downloads.artifact {
-                let lib_path = instance_dir.join("libraries").join(&artifact.path);
-
-                if let Some(parent) = lib_path.parent() {
-                    tokio::fs::create_dir_all(parent).await.map_err(|e| e.to_string())?;
-                }
-
-                if !lib_path.exists() {
-                    mod_loader_libraries_to_download.push((artifact.url.clone(), lib_path));
-                }
-            }
-        }
-    }
-
-    // Download mod loader libraries in parallel
-    if !mod_loader_libraries_to_download.is_empty() {
-        use futures_util::stream::{self, StreamExt};
-        let parallel = num_cpus::get().saturating_mul(6).max(30).min(mod_loader_libraries_to_download.len());
-
-        let client = std::sync::Arc::new(reqwest::Client::builder()
-            .user_agent("ValthorneClient/1.0")
-            .connect_timeout(std::time::Duration::from_secs(5))
-            .timeout(std::time::Duration::from_secs(120))
-            .pool_max_idle_per_host(40)
-            .pool_idle_timeout(std::time::Duration::from_secs(60))
-            .tcp_nodelay(true)
-            .build()
-            .map_err(|e| format!("Failed to build HTTP client: {}", e))?);
-
-        let results: Vec<Result<(), String>> = stream::iter(mod_loader_libraries_to_download.into_iter())
-            .map(|(url, path)| {
-                let client = client.clone();
-                async move {
-                    download_file_with_retry_and_client(&client, &url, &path).await
-                }
-            })
-            .buffer_unordered(parallel)
-            .collect()
-            .await;
-
-        // Log errors but don't fail completely
-        for result in results {
-            if let Err(e) = result {
-                log::warn!("Error downloading mod loader library: {}", e);
-            }
-        }
-    }
-    
-    Ok(())
+    download_all(missing_libraries(instance_dir, &json_path).await?, "mod loader library").await
 }
 
 pub async fn install_mod_loader(minecraft_version: &str, mod_loader: &ModLoader, instance_dir: &Path) -> Result<Option<String>, String> {
@@ -497,89 +501,40 @@ fn build_library_url(library: &crate::models::FabricLibrary) -> Result<String, S
     Ok(format!("{}/{}/{}/{}/{}", base, group_id_path, artifact_id, version, filename))
 }
 
-pub async fn ensure_assets_present(app_handle: &tauri::AppHandle, instance_dir: &Path, mc_version: &str) -> Result<String, String> {
-    let version_dir = instance_dir.join("versions").join(mc_version);
-    let json_path = version_dir.join(format!("{}.json", mc_version));
-    if !json_path.exists() { return Err(format!("Version json not found: {}", json_path.display())); }
-    #[derive(serde::Deserialize)]
-    struct AssetIndexRef { id: String, url: String }
-    #[derive(serde::Deserialize)]
-    struct VJson { #[serde(rename="assetIndex")] asset_index: Option<AssetIndexRef> }
-    let vtext = tokio::fs::read_to_string(&json_path).await.map_err(|e| e.to_string())?;
-    let vj: VJson = serde_json::from_str(&vtext).map_err(|e| e.to_string())?;
-    let Some(ai) = vj.asset_index else { return Err("assetIndex missing in version json".to_string()); };
-    let assets_dir = instance_dir.join("assets");
-    let indexes_dir = assets_dir.join("indexes");
-    tokio::fs::create_dir_all(&indexes_dir).await.map_err(|e| e.to_string())?;
-    let index_path = indexes_dir.join(format!("{}.json", ai.id));
-    if !index_path.exists() { download_file_with_retry(&ai.url, &index_path).await?; }
-    let index_text = tokio::fs::read_to_string(&index_path).await.map_err(|e| e.to_string())?;
-    #[derive(serde::Deserialize)]
-    struct AssetObject { hash: String }
-    #[derive(serde::Deserialize)]
-    struct AssetIndex { objects: std::collections::HashMap<String, AssetObject> }
-    let aidx: AssetIndex = serde_json::from_str(&index_text).map_err(|e| e.to_string())?;
-    let objects_dir = assets_dir.join("objects");
-    tokio::fs::create_dir_all(&objects_dir).await.map_err(|e| e.to_string())?;
-    let mut pending: Vec<(String, String)> = Vec::new();
-    for (_name, obj) in aidx.objects {
-        let prefix = obj.hash[0..2].to_string();
-        let obj_dir = objects_dir.join(&prefix);
-        tokio::fs::create_dir_all(&obj_dir).await.map_err(|e| e.to_string())?;
-        let obj_path = obj_dir.join(&obj.hash);
-        if !obj_path.exists() { pending.push((prefix, obj.hash)); }
-    }
-    if pending.is_empty() { return Ok(ai.id); }
-    let parallel = num_cpus::get().saturating_mul(8).max(50);
-    let progress = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
-    let total_count = pending.len() as u64;
-    let client = std::sync::Arc::new(reqwest::Client::builder()
-        .user_agent("ValthorneClient/1.0")
-        .connect_timeout(std::time::Duration::from_secs(20))
-        .timeout(std::time::Duration::from_secs(86400))
-        .pool_max_idle_per_host(parallel)
-        .pool_idle_timeout(std::time::Duration::from_secs(90))
-        .build().map_err(|e| e.to_string())?);
-    use futures_util::stream::{self, StreamExt};
-    let results: Vec<Result<(), String>> = stream::iter(pending.into_iter().map(|(prefix, hash)| {
-        let client = client.clone();
-        let objects_dir = objects_dir.clone();
-        let progress = progress.clone();
-        let app_handle = app_handle.clone();
-        async move {
-            let url = format!("https://resources.download.minecraft.net/{}/{}", prefix, hash);
-            let obj_path = objects_dir.join(&prefix).join(&hash);
-            let resp = client.get(&url).send().await.map_err(|e| format!("Request failed: {}", e))?;
-            if !resp.status().is_success() { return Err(format!("Asset HTTP {} for {}", resp.status(), url)); }
-            let tmp = obj_path.with_extension("vc.tmp");
-            let bytes = resp.bytes().await.map_err(|e| format!("Download failed: {}", e))?;
-            tokio::fs::write(&tmp, &bytes).await.map_err(|e| format!("Write failed: {}", e))?;
-            tokio::fs::rename(&tmp, &obj_path).await.map_err(|e| format!("Rename failed: {}", e))?;
-            let cur = progress.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
-            let _ = app_handle.emit("asset-download-progress", serde_json::json!({
-                "current": cur,
-                "total": total_count,
-                "percentage": ((cur as f32 / total_count as f32) * 100.0).min(100.0),
-                "current_file": "",
-                "status": "Mojang"
-            }));
-            Ok(())
-        }
-    })).buffer_unordered(parallel).collect().await;
-    for result in results { if let Err(e) = result { eprintln!("Warning: Mojang asset download error: {}", e); } }
-    let _ = app_handle.emit("asset-download-completed", serde_json::json!({ "phase": "mojang" }));
-    Ok(ai.id)
+/// Valid asset hashes with duplicates removed, in index order.
+///
+/// The index maps several names to the same content, and downloading one hash twice at the
+/// same time makes both writers fight over a single temp file. Hashes become path components,
+/// so anything that is not plain hex is dropped instead of trusted.
+fn unique_asset_hashes<'a>(hashes: impl Iterator<Item = &'a str>) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
+    hashes
+        .filter(|hash| hash.len() >= 2 && hash.bytes().all(|b| b.is_ascii_hexdigit()))
+        .filter(|hash| seen.insert(*hash))
+        .map(str::to_string)
+        .collect()
 }
 
-pub async fn ensure_assets_present_with_progress(
+fn asset_object_path(objects_dir: &Path, hash: &str) -> PathBuf {
+    objects_dir.join(&hash[..2]).join(hash)
+}
+
+/// Downloads the Mojang asset objects the version needs and returns the asset index id.
+///
+/// `progress_range` maps the download onto a slice of the overall progress bar, because the
+/// install flow spends the rest of the bar on other stages.
+pub async fn ensure_assets_present(
     app_handle: &tauri::AppHandle,
     instance_dir: &Path,
     mc_version: &str,
-    combined: Option<(std::sync::Arc<std::sync::atomic::AtomicU64>, u64)>
+    progress_range: (f64, f64),
 ) -> Result<String, String> {
-    let version_dir = instance_dir.join("versions").join(mc_version);
-    let json_path = version_dir.join(format!("{}.json", mc_version));
+    use futures_util::stream::{self, StreamExt};
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    let json_path = instance_dir.join("versions").join(mc_version).join(format!("{}.json", mc_version));
     if !json_path.exists() { return Err(format!("Version json not found: {}", json_path.display())); }
+
     #[derive(serde::Deserialize)]
     struct AssetIndexRef { id: String, url: String }
     #[derive(serde::Deserialize)]
@@ -587,71 +542,78 @@ pub async fn ensure_assets_present_with_progress(
     let vtext = tokio::fs::read_to_string(&json_path).await.map_err(|e| e.to_string())?;
     let vj: VJson = serde_json::from_str(&vtext).map_err(|e| e.to_string())?;
     let Some(ai) = vj.asset_index else { return Err("assetIndex missing in version json".to_string()); };
+
     let assets_dir = instance_dir.join("assets");
     let indexes_dir = assets_dir.join("indexes");
     tokio::fs::create_dir_all(&indexes_dir).await.map_err(|e| e.to_string())?;
     let index_path = indexes_dir.join(format!("{}.json", ai.id));
     if !index_path.exists() { download_file_with_retry(&ai.url, &index_path).await?; }
-    let index_text = tokio::fs::read_to_string(&index_path).await.map_err(|e| e.to_string())?;
+
     #[derive(serde::Deserialize)]
-    struct AssetObject { hash: String }
+    struct AssetObject { hash: String, size: Option<u64> }
     #[derive(serde::Deserialize)]
     struct AssetIndex { objects: std::collections::HashMap<String, AssetObject> }
+    let index_text = tokio::fs::read_to_string(&index_path).await.map_err(|e| e.to_string())?;
     let aidx: AssetIndex = serde_json::from_str(&index_text).map_err(|e| e.to_string())?;
+
+    // Checking thousands of files one async call at a time is slow; do it in one blocking pass.
     let objects_dir = assets_dir.join("objects");
-    tokio::fs::create_dir_all(&objects_dir).await.map_err(|e| e.to_string())?;
-    let mut pending: Vec<(String, String)> = Vec::new();
-    for (_name, obj) in aidx.objects {
-        let prefix = obj.hash[0..2].to_string();
-        let obj_dir = objects_dir.join(&prefix);
-        tokio::fs::create_dir_all(&obj_dir).await.map_err(|e| e.to_string())?;
-        let obj_path = obj_dir.join(&obj.hash);
-        if !obj_path.exists() { pending.push((prefix, obj.hash)); }
-    }
-    if pending.is_empty() { return Ok(ai.id); }
-    let parallel = num_cpus::get().saturating_mul(12).max(100);
-    use futures_util::stream::{self, StreamExt};
-
-    // HTTP client optimized with a large connection pool
-    let client = std::sync::Arc::new(reqwest::Client::builder()
-        .user_agent("ValthorneClient/1.0")
-        .connect_timeout(std::time::Duration::from_secs(5))
-        .timeout(std::time::Duration::from_secs(120))
-        .pool_max_idle_per_host(50)
-        .pool_idle_timeout(std::time::Duration::from_secs(60))
-        .tcp_nodelay(true)
-        .build()
-        .map_err(|e| format!("Failed to build HTTP client: {}", e))?);
-
-    let results: Vec<Result<(), String>> = stream::iter(pending.into_iter().map(|(prefix, hash)| {
+    let pending: Vec<String> = {
         let objects_dir = objects_dir.clone();
-        let app_handle = app_handle.clone();
-        let combined = combined.clone();
-        let client = client.clone();
+        tokio::task::spawn_blocking(move || {
+            let sizes: std::collections::HashMap<&str, u64> = aidx.objects.values()
+                .filter_map(|o| o.size.map(|size| (o.hash.as_str(), size)))
+                .collect();
+            unique_asset_hashes(aidx.objects.values().map(|o| o.hash.as_str()))
+                .into_iter()
+                .filter(|hash| !size_matches(&asset_object_path(&objects_dir, hash), sizes.get(hash.as_str()).copied()))
+                .collect()
+        })
+        .await
+        .map_err(|e| e.to_string())?
+    };
+    if pending.is_empty() { return Ok(ai.id); }
+
+    let total = pending.len() as u64;
+    let done = std::sync::Arc::new(AtomicU64::new(0));
+    let last_percent = std::sync::Arc::new(AtomicU64::new(u64::MAX));
+    let client = bulk_download_client()?;
+
+    let results: Vec<Result<(), String>> = stream::iter(pending.into_iter().map(|hash| {
+        let (client, objects_dir, app_handle) = (client.clone(), objects_dir.clone(), app_handle.clone());
+        let (done, last_percent) = (done.clone(), last_percent.clone());
         async move {
-            let url = format!("https://resources.download.minecraft.net/{}/{}", prefix, hash);
-            let obj_path = objects_dir.join(&prefix).join(&hash);
-            download_file_with_retry_and_client(&client, &url, &obj_path).await?;
-            if let Some((counter, total)) = &combined {
-                let cur = counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+            let url = format!("https://resources.download.minecraft.net/{}/{}", &hash[..2], hash);
+            // An asset's hash is the SHA-1 of its content.
+            download_file_checked_with_retry(&client, &url, &asset_object_path(&objects_dir, &hash), Some(&hash)).await?;
+
+            let current = done.fetch_add(1, Ordering::Relaxed) + 1;
+            let fraction = current as f64 / total as f64;
+            let percentage = progress_range.0 + (progress_range.1 - progress_range.0) * fraction;
+            // One event per whole percent instead of one per file.
+            if last_percent.swap(percentage as u64, Ordering::Relaxed) != percentage as u64 {
                 let _ = app_handle.emit("asset-download-progress", serde_json::json!({
-                    "current": cur,
+                    "current": current,
                     "total": total,
-                    "percentage": ((cur as f32 / *total as f32) * 100.0).min(100.0),
+                    "percentage": percentage,
                     "current_file": "",
                     "status": "Mojang"
                 }));
             }
             Ok(())
         }
-    })).buffer_unordered(parallel).collect().await;
-    for result in results { if let Err(e) = result { eprintln!("Warning: Mojang asset download error: {}", e); } }
+    })).buffer_unordered(download_parallelism(total as usize)).collect().await;
+
+    for error in results.into_iter().filter_map(Result::err) {
+        log::warn!("Mojang asset download error: {}", error);
+    }
+    let _ = app_handle.emit("asset-download-completed", serde_json::json!({ "phase": "mojang" }));
     Ok(ai.id)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::normalize_install_path;
+    use super::{asset_object_path, client_jar_checksum, download_parallelism, hex_digest, normalize_install_path, size_matches, unique_asset_hashes};
 
     #[test]
     fn keeps_manifest_declared_placement() {
@@ -669,5 +631,56 @@ mod tests {
     fn rejects_traversal() {
         assert_eq!(normalize_install_path("../../evil.txt"), "evil.txt");
         assert_eq!(normalize_install_path("config/../../evil.txt"), "config/evil.txt");
+    }
+
+    #[test]
+    fn duplicate_asset_hashes_are_downloaded_once() {
+        let hashes = ["aabb", "ccdd", "aabb", "ccdd", "eeff"];
+        assert_eq!(unique_asset_hashes(hashes.into_iter()), vec!["aabb", "ccdd", "eeff"]);
+    }
+
+    #[test]
+    fn hashes_that_could_escape_the_objects_dir_are_dropped() {
+        let hashes = ["../../etc/passwd", "a", "", "zz12", "ab/cd", "abcd"];
+        assert_eq!(unique_asset_hashes(hashes.into_iter()), vec!["abcd"]);
+    }
+
+    #[test]
+    fn asset_objects_live_under_their_two_letter_prefix() {
+        let path = asset_object_path(std::path::Path::new("objects"), "abcdef");
+        assert_eq!(path, std::path::Path::new("objects").join("ab").join("abcdef"));
+    }
+
+    #[test]
+    fn parallelism_stays_within_the_descriptor_budget() {
+        assert!(download_parallelism(10_000) <= 32);
+        assert!(download_parallelism(10_000) >= 16);
+        assert_eq!(download_parallelism(3), 3);
+        assert_eq!(download_parallelism(0), 1);
+    }
+
+    #[test]
+    fn sha1_digests_are_lowercase_hex() {
+        use sha1::{Digest, Sha1};
+        assert_eq!(hex_digest(Sha1::digest(b"abc")), "a9993e364706816aba3e25717850c26c9cd0d89d");
+    }
+
+    #[test]
+    fn size_check_rejects_truncated_and_missing_files() {
+        let path = std::env::temp_dir().join(format!("valthorne-test-size-{}", std::process::id()));
+        std::fs::write(&path, b"12345").unwrap();
+        assert!(size_matches(&path, Some(5)));
+        assert!(!size_matches(&path, Some(9)));
+        assert!(size_matches(&path, None));
+        let _ = std::fs::remove_file(&path);
+        assert!(!size_matches(&path, None));
+    }
+
+    #[test]
+    fn client_checksum_is_read_from_the_version_json() {
+        let json = r#"{ "downloads": { "client": { "sha1": "abc", "size": 42, "url": "x" } } }"#;
+        assert_eq!(client_jar_checksum(json), (Some("abc".to_string()), Some(42)));
+        assert_eq!(client_jar_checksum("{}"), (None, None));
+        assert_eq!(client_jar_checksum("not json"), (None, None));
     }
 }
