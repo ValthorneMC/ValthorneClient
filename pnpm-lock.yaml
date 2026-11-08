@@ -58,7 +58,7 @@ importers:
         version: 19.2.8(react@19.2.8)
       react-dropzone:
         specifier: ^20.0.0
-        version: 20.1.1(@types/react@19.2.18)(react@19.2.8)
+        version: 20.2.0(@types/react@19.2.18)(react@19.2.8)
       react-i18next:
         specifier: ^17.0.12
         version: 17.0.12(i18next@26.4.2(typescript@7.0.2))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(typescript@7.0.2)
@@ -760,8 +760,8 @@ packages:
       oxc-transform-react:
         optional: true
 
-  attr-accept@4.0.0:
-    resolution: {integrity: sha512-hmCnJClmeKNKlsBHgbM8yLZRiQZ4/20UXbLJb6OUT16eWcM5/xNZerr80a/zCYob768KIGq++aLrQNTuwPsIOQ==}
+  attr-accept@4.0.1:
+    resolution: {integrity: sha512-rOKAGOwbnTUvwTL8rNA0hWnU3uX9tOI20di4KjR5I1ez/RJmnA37W3zz4EMxGC2YnI289yPjRy63CdAZeQFZ4Q==}
     engines: {node: '>= 22'}
 
   autoprefixer@10.6.1:
@@ -1072,8 +1072,8 @@ packages:
     peerDependencies:
       react: ^19.2.8
 
-  react-dropzone@20.1.1:
-    resolution: {integrity: sha512-2cilRFP8bsjDOHpV0sJ6XY8pzJhmz4/cQ6s9yeckOACWYDR+n4MGGtnJh3Rycq/9SLhDWugqDx1z5mtfmOOZhw==}
+  react-dropzone@20.2.0:
+    resolution: {integrity: sha512-FRlcSp6UFT9Etg57U4+g6O6qF/jH7sUh2Hz67lQlrZJa/3FjfAFvw7DwDSItiG2vBUXTdh2wroEwXPPg7o/jkg==}
     engines: {node: '>= 22'}
     peerDependencies:
       '@types/react': '*'
@@ -1605,7 +1605,7 @@ snapshots:
       '@rolldown/pluginutils': 1.0.1
       vite: 8.2.2(@types/node@24.13.3)(esbuild@0.28.1)(jiti@2.7.0)
 
-  attr-accept@4.0.0: {}
+  attr-accept@4.0.1: {}
 
   autoprefixer@10.6.1(postcss@8.5.26):
     dependencies:
@@ -1851,9 +1851,9 @@ snapshots:
       react: 19.2.8
       scheduler: 0.27.0
 
-  react-dropzone@20.1.1(@types/react@19.2.18)(react@19.2.8):
+  react-dropzone@20.2.0(@types/react@19.2.18)(react@19.2.8):
     dependencies:
-      attr-accept: 4.0.0
+      attr-accept: 4.0.1
       file-selector: 5.0.1
       react: 19.2.8
     optionalDependencies:
