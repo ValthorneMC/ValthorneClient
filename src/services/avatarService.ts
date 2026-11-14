@@ -2,6 +2,9 @@ export type AvatarProvider = 'minotar' | 'mcheads';
 
 const PROVIDER_CACHE_KEY = 'avatar_provider_cache';
 const CACHE_DURATION = 24 * 60 * 60 * 1000;
+const MAX_CACHE_ENTRIES = 128;
+const resolvedAvatars = new Map<string, { url: string; expires: number }>();
+const pendingAvatars = new Map<string, Promise<string | null>>();
 
 interface ProviderCache {
   [uuid: string]: {
@@ -38,7 +41,9 @@ function setCachedProvider(uuid: string, provider: AvatarProvider): void {
       timestamp: Date.now()
     };
     
-    localStorage.setItem(PROVIDER_CACHE_KEY, JSON.stringify(cache));
+    const entries = Object.entries(cache).filter(([, entry]) => Date.now() - entry.timestamp < CACHE_DURATION)
+      .sort((a, b) => b[1].timestamp - a[1].timestamp).slice(0, MAX_CACHE_ENTRIES);
+    localStorage.setItem(PROVIDER_CACHE_KEY, JSON.stringify(Object.fromEntries(entries)));
   } catch {}
 }
 
@@ -88,54 +93,54 @@ function createPlaceholderSvg(username: string, size: number): string {
 async function testProvider(provider: AvatarProvider, uuid: string, size: number, overlay: boolean): Promise<string | null> {
   const url = getAvatarUrl(provider, uuid, size, overlay);
   
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 3000);
   try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 3000);
-    
-    const response = await fetch(url, {
-      method: 'HEAD',
-      signal: controller.signal,
-      cache: 'no-cache'
-    });
-    
+    const response = await fetch(url, { method: 'HEAD', signal: controller.signal });
+    return response.ok ? url : null;
+  } catch {
+    return null;
+  } finally {
     clearTimeout(timeoutId);
-    
-    if (response.ok) {
-      return url;
-    }
-  } catch {}
-  
-  return null;
+  }
 }
 
 export async function loadAvatarWithFallback(
   uuid: string,
   username: string,
-  size: number = 64,
-  overlay: boolean = true
+  size = 64,
+  overlay = true,
+  failedUrl?: string,
 ): Promise<string> {
-  const cachedProvider = getCachedProvider(uuid);
-  const allProviders: AvatarProvider[] = ['minotar', 'mcheads'];
-  const providers: AvatarProvider[] = cachedProvider 
-    ? [cachedProvider, ...allProviders].filter((p, i, arr) => arr.indexOf(p) === i) as AvatarProvider[]
-    : allProviders;
-
-  const promises = providers.map(provider => 
-    testProvider(provider, uuid, size, overlay).then(url => ({ provider, url }))
-  );
-
-  try {
-    const results = await Promise.allSettled(promises);
-    
-    for (const result of results) {
-      if (result.status === 'fulfilled' && result.value.url) {
-        setCachedProvider(uuid, result.value.provider);
-        return result.value.url;
+  const key = `${uuid.replace(/-/g, '')}:${size}:${overlay}`;
+  if (failedUrl) resolvedAvatars.delete(key);
+  const cached = resolvedAvatars.get(key);
+  if (cached && cached.expires > Date.now()) {
+    resolvedAvatars.delete(key);
+    resolvedAvatars.set(key, cached);
+    return cached.url;
+  }
+  resolvedAvatars.delete(key);
+  const requestKey = `${key}:${failedUrl ?? ''}`;
+  let pending = pendingAvatars.get(requestKey);
+  if (!pending) {
+    pending = (async () => {
+      const preferred = getCachedProvider(uuid) ?? 'minotar';
+      const providers: AvatarProvider[] = [preferred, preferred === 'minotar' ? 'mcheads' : 'minotar'];
+      for (const provider of providers) {
+        if (getAvatarUrl(provider, uuid, size, overlay) === failedUrl) continue;
+        const url = await testProvider(provider, uuid, size, overlay);
+        if (!url) continue;
+        setCachedProvider(uuid, provider);
+        resolvedAvatars.set(key, { url, expires: Date.now() + 5 * 60 * 1000 });
+        while (resolvedAvatars.size > MAX_CACHE_ENTRIES) resolvedAvatars.delete(resolvedAvatars.keys().next().value!);
+        return url;
       }
-    }
-  } catch {}
-
-  return createPlaceholderSvg(username, size);
+      return null;
+    })().finally(() => pendingAvatars.delete(requestKey));
+    pendingAvatars.set(requestKey, pending);
+  }
+  return (await pending) ?? createPlaceholderSvg(username, size);
 }
 
 function getSkinTextureUrl(provider: AvatarProvider, uuid: string): string {
