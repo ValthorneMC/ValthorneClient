@@ -1,5 +1,4 @@
 use tokio::fs;
-use std::fs::File;
 use std::io::Write;
 use reqwest;
 use tauri::{AppHandle, State};
@@ -63,109 +62,12 @@ pub async fn download_java(version: String, app_handle: AppHandle, state: State<
 }
 
 async fn download_java_inner(version: String, app_handle: AppHandle) -> Result<String, String> {
-    // Notify that the download started
     let _ = app_handle.emit("java-download-started", serde_json::json!({ "version": version }));
-    
-    let runtime_dir = crate::utils::runtime_dir();
-    let java_dir = crate::utils::java_runtime_dir(&version);
-    fs::create_dir_all(&runtime_dir).await.map_err(|e| format!("Failed to create runtime directory: {}", e))?;
-    let (os, arch) = crate::utils::adoptium_os_and_arch();
-    let extension = crate::utils::adoptium_archive_extension();
-    let jre_url = format!("https://api.adoptium.net/v3/binary/latest/{}/ga/{}/{}/jdk/hotspot/normal/eclipse", version, os, arch);
-    
-    // Emit initial progress
-    let _ = app_handle.emit("java-download-progress", serde_json::json!({
-        "percentage": 0,
-        "status": "Downloading Java"
-    }));
-    
-    let client = reqwest::Client::new();
-    let response = client.get(&jre_url).header("User-Agent", "ValthorneClient/1.0").header("Accept", "application/octet-stream").send().await.map_err(|e| format!("Failed to download Java: {}", e))?;
-    if !response.status().is_success() { return Err(format!("Download failed with status: {}", response.status())); }
-    
-    // Get total size if available
-    let total_size = response.content_length().unwrap_or(0);
-    let mut downloaded = 0u64;
-
-    // Emit progress during download
-    let _ = app_handle.emit("java-download-progress", serde_json::json!({
-        "percentage": 10,
-        "status": "Downloading Java"
-    }));
-    
-    let temp_file = runtime_dir.join(format!("java-{}.{}", version, extension));
-    let mut file = File::create(&temp_file).map_err(|e| format!("Failed to create temp file: {}", e))?;
-
-    // Write each chunk to disk as it arrives instead of buffering the whole JDK archive
-    // (150-200 MB) in memory before writing it out.
-    let mut stream = response.bytes_stream();
-    use futures_util::TryStreamExt;
-    loop {
-        match stream.try_next().await {
-            Ok(Some(chunk)) => {
-                downloaded += chunk.len() as u64;
-                file.write_all(&chunk).map_err(|e| format!("Failed to write temp file: {}", e))?;
-
-                // Update progress every 5%
-                if total_size > 0 {
-                    let percentage = ((downloaded * 100) / total_size).min(80);
-                    let _ = app_handle.emit("java-download-progress", serde_json::json!({
-                        "percentage": percentage,
-                        "status": "Downloading Java"
-                    }));
-                }
-            }
-            Ok(None) => break,
-            Err(e) => return Err(format!("Failed to read chunk: {}", e)),
-        }
-    }
-
-    file.flush().map_err(|e| format!("Failed to flush file: {}", e))?;
-    drop(file);
-    
-    // Emit extraction progress
-    let _ = app_handle.emit("java-download-progress", serde_json::json!({
-        "percentage": 85,
-        "status": "Extracting Java"
-    }));
-    
-    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-    if java_dir.exists() { let _ = std::fs::remove_dir_all(&java_dir); }
-
-    let staging_dir = crate::utils::java_staging_dir(&runtime_dir, &version);
-    let _ = std::fs::remove_dir_all(&staging_dir);
-    {
-        let app_handle = app_handle.clone();
-        crate::utils::extract_java_archive(&temp_file, &staging_dir, move |done, total| {
-            // tar.gz reports total = 0 (unknown up front); keep the bar moving anyway
-            let extraction_progress = if total > 0 {
-                85 + ((done * 10) / total)
-            } else {
-                (85 + done / 200).min(94)
-            };
-            let _ = app_handle.emit("java-download-progress", serde_json::json!({
-                "percentage": extraction_progress,
-                "status": "Extracting Java"
-            }));
-        })?;
-    }
-
-    // Emit final progress
-    let _ = app_handle.emit("java-download-progress", serde_json::json!({
-        "percentage": 95,
-        "status": "Finalizing installation"
-    }));
-
-    crate::utils::finalize_extracted_java(&staging_dir, &java_dir)?;
-    let _ = std::fs::remove_file(&temp_file);
-    
-    // Emit completed progress
-    let _ = app_handle.emit("java-download-progress", serde_json::json!({
-        "percentage": 100,
-        "status": "Completed"
-    }));
+    let events = app_handle.clone();
+    crate::java_install::install(&version, Arc::new(move |percentage, status| {
+        let _ = events.emit("java-download-progress", serde_json::json!({ "percentage": percentage, "status": status }));
+    })).await?;
     let _ = app_handle.emit("java-download-completed", serde_json::json!({ "version": version }));
-
     Ok(format!("Java {} downloaded and installed successfully", version))
 }
 

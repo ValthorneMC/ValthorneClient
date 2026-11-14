@@ -17,6 +17,7 @@ mod sessions;
 mod models;
 mod versions;
 mod launcher;
+mod java_install;
 mod utils;
 mod sessions_api;
 mod instances;
