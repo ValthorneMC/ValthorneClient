@@ -42,5 +42,7 @@
     "capeRemoveFailed": "Could not remove the cape",
     "updated": "Skin updated",
     "saveChangesFailed": "Could not save the changes"
-  }
+  },
+  "previewUnavailable": "The preview could not be loaded.",
+  "retryPreview": "Retry"
 }

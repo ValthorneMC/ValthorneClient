@@ -62,3 +62,16 @@ test('defers every resource load until enabled and releases consumers when hidde
   await act(async () => { pending.resolve(model()); texture.resolve(new Texture()); });
   expect(initializeAnimations).not.toHaveBeenCalled(); expect(state!.scene).toBeNull();
 });
+
+test('exposes a texture error, does not animate a failed preview and can retry successfully', async () => {
+  const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+  vi.mocked(resources.loadModel).mockResolvedValue(model() as any);
+  const release = vi.fn();
+  vi.mocked(resources.acquireTexture).mockReturnValueOnce({ texture: Promise.reject(new Error('offline')), release })
+    .mockReturnValue({ texture: Promise.resolve(new Texture()), release: vi.fn() });
+  try {
+    await act(async () => root.render(<Probe/>)); expect(state!.error).toBe(true); expect(initializeAnimations).not.toHaveBeenCalled();
+    await act(async () => state!.retry()); expect(state!.error).toBe(false); expect(state!.isTextureLoaded).toBe(true);
+    expect(initializeAnimations).toHaveBeenCalledTimes(1); expect(release).toHaveBeenCalledTimes(1);
+  } finally { error.mockRestore(); }
+});

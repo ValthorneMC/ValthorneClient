@@ -81,7 +81,12 @@ export async function loadModel(modelUrl: string): Promise<GLTF> {
   return promise;
 }
 
+export function normalizeTextureUrl(url: string): string {
+  return url.replace(/^http:\/\/textures\.minecraft\.net\//i, 'https://textures.minecraft.net/');
+}
+
 export function acquireTexture(textureUrl: string, config: SkinRendererConfig = {}): TextureLease {
+  textureUrl = normalizeTextureUrl(textureUrl);
   const key = `${textureUrl}_${JSON.stringify(config)}`;
   let entry = textureCache.get(key);
   if (entry) {
@@ -98,7 +103,18 @@ export function acquireTexture(textureUrl: string, config: SkinRendererConfig = 
     entry = created;
     textureCache.set(key, created);
     created.promise = new Promise<Texture>((resolve, reject) => {
+      let finished = false;
+      const fail = (error: unknown) => {
+        if (finished) return;
+        finished = true;
+        clearTimeout(timeout);
+        reject(error);
+      };
+      const timeout = setTimeout(() => fail(new Error('Texture load timed out')), 10000);
       new TextureLoader().load(textureUrl, texture => {
+        if (finished) { texture.dispose(); return; }
+        finished = true;
+        clearTimeout(timeout);
         texture.colorSpace = config.textureColorSpace ?? SRGBColorSpace;
         texture.flipY = config.textureFlipY ?? false;
         texture.magFilter = config.textureMagFilter ?? NearestFilter;
@@ -107,7 +123,7 @@ export function acquireTexture(textureUrl: string, config: SkinRendererConfig = 
         if (created.invalidated) evictTexture(key, created);
         trimTextures();
         resolve(texture);
-      }, undefined, reject);
+      }, undefined, fail);
     }).catch(error => {
       evictTexture(key, created);
       throw error;
@@ -129,6 +145,7 @@ export function acquireTexture(textureUrl: string, config: SkinRendererConfig = 
 
 /** Invalidates a URL without disposing a texture still used by another preview. */
 export function releaseTexture(textureUrl: string): void {
+  textureUrl = normalizeTextureUrl(textureUrl);
   for (const [key, entry] of textureCache) {
     if (entry.url === textureUrl) evictTexture(key, entry);
   }
