@@ -58,5 +58,10 @@
     "toastEnabled": "Discord RPC enabled",
     "toastDisabled": "Discord RPC disabled",
     "toastFailed": "Could not change the Discord RPC state"
+  },
+  "performance": {
+    "title": "Performance",
+    "animatedBackgrounds": "Animated backgrounds",
+    "backgroundHint": "Off by default to reduce resource use. When enabled, they pause while the window is unfocused."
   }
 }

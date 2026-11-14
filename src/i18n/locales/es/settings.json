@@ -58,5 +58,10 @@
     "toastEnabled": "Discord RPC activado",
     "toastDisabled": "Discord RPC desactivado",
     "toastFailed": "Error al cambiar estado de Discord RPC"
+  },
+  "performance": {
+    "title": "Rendimiento",
+    "animatedBackgrounds": "Fondos animados",
+    "backgroundHint": "Desactivados por defecto para reducir el consumo. Si los activas, se pausan cuando la ventana pierde el foco."
   }
 }

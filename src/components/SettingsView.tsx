@@ -28,6 +28,7 @@ import { UpdaterService } from '@/services/updater';
 import type { UpdateState, UpdateProgress } from '@/types/updater';
 import { logger } from '@/utils/logger';
 import { Modal } from '@/components/ui/Modal';
+import { setAnimatedBackgrounds, useAnimatedBackgrounds } from '@/hooks/useAnimatedBackgrounds';
 
 interface SettingsViewProps {
   addToast?: (message: string, type?: 'success' | 'error' | 'info', duration?: number) => void;
@@ -38,6 +39,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ addToast, scrollToUpdates =
   const { t } = useTranslation('settings');
   const { t: tCommon } = useTranslation('common');
   const { t: tUpdater } = useTranslation('updater');
+  const animatedBackgrounds = useAnimatedBackgrounds();
   const [language, setLanguage] = useState<LanguagePreference>(AUTO_LANGUAGE);
   const [isVisible, setIsVisible] = useState(false);
   const updatesSectionRef = React.useRef<HTMLDivElement>(null);
@@ -440,6 +442,17 @@ const SettingsView: React.FC<SettingsViewProps> = ({ addToast, scrollToUpdates =
                   </button>
                 ))}
               </div>
+            </div>
+          </div>
+
+          <div className="max-w-4xl mx-auto mb-6">
+            <div className="glass-card rounded-2xl p-6">
+              <h2 className="font-heading text-2xl font-bold text-white mb-4">{t('performance.title')}</h2>
+              <label className="flex items-center justify-between gap-4 text-white cursor-pointer">
+                <span>{t('performance.animatedBackgrounds')}</span>
+                <input type="checkbox" checked={animatedBackgrounds} onChange={event => setAnimatedBackgrounds(event.target.checked)} className="h-5 w-5 accent-[#d4af37]" />
+              </label>
+              <p className="text-white/50 text-sm mt-3">{t('performance.backgroundHint')}</p>
             </div>
           </div>
 
