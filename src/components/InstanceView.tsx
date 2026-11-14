@@ -4,6 +4,7 @@ import { invoke, convertFileSrc } from '@tauri-apps/api/core';
 import LaunchButton from './LaunchButton';
 import AppBackground from '@/components/AppBackground';
 import { logger } from '@/utils/logger';
+import PlayTimeStats from './PlayTimeStats';
 
 
 import minecraftIcon from '@/assets/icons/minecraft.svg';
@@ -279,63 +280,5 @@ const InstanceView: React.FC<InstanceViewProps> = ({
 };
 
 
-const PlayTimeStats: React.FC<{ instanceId: string }> = ({ instanceId }) => {
-  const { t } = useTranslation('instance');
-  const [totalHours, setTotalHours] = React.useState<number>(0);
-  
-  React.useEffect(() => {
-    // Load total hours from localStorage or database
-    const loadPlayTime = async () => {
-      try {
-        const saved = localStorage.getItem(`playtime_${instanceId}`);
-        if (saved) {
-          const hours = parseFloat(saved) || 0;
-          setTotalHours(hours);
-        }
-      } catch (error) {
-        void logger.error('Error loading play time', error, 'InstanceView');
-      }
-    };
-    
-    loadPlayTime();
-    
-    // Listen for when the game exits to save the time
-    const unlisten = async () => {
-      const { listen } = await import('@tauri-apps/api/event');
-      return listen('minecraft_exited', () => {
-        // The time is already saved in LaunchButton, just refresh here
-        loadPlayTime();
-      });
-    };
-
-    unlisten().then(fn => {
-      return () => { try { fn(); } catch {} };
-    }).catch(() => {});
-
-    // Listen for the custom event fired when playtime is updated
-    const handlePlaytimeUpdate = (event: Event) => {
-      const customEvent = event as CustomEvent;
-      if (customEvent.detail?.instanceId === instanceId) {
-        loadPlayTime();
-      }
-    };
-    
-    window.addEventListener('playtime_updated', handlePlaytimeUpdate);
-    
-    return () => {
-      window.removeEventListener('playtime_updated', handlePlaytimeUpdate);
-    };
-  }, [instanceId]);
-  
-  if (totalHours < 1.0) return null;
-  
-  const hours = Math.floor(totalHours);
-
-  return (
-    <div className="text-white/30 text-xs font-light opacity-50 transition-opacity hover:opacity-70">
-      {t('hoursPlayed', { count: hours })}
-    </div>
-  );
-};
 
 export default InstanceView;

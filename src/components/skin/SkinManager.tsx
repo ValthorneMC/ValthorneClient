@@ -314,12 +314,14 @@ export const SkinManager: React.FC<SkinManagerProps> = ({ currentUser, addToast 
     if (hasInitialized.current) return;
     hasInitialized.current = true;
 
+    let cancelled = false;
     let syncInterval: ReturnType<typeof setInterval> | null = null;
 
     const initializeSkins = async () => {
       try {
         const savedSkins = await SkinStorageService.getStoredSkins();
         const activeSkin = await SkinStorageService.getActiveSkin(savedSkins);
+        if (cancelled) return;
 
         savedSkins.forEach(skin => {
           if (skin.fileData && skin.fileData instanceof ArrayBuffer && skin.fileData.byteLength > 0) {
@@ -340,6 +342,7 @@ export const SkinManager: React.FC<SkinManagerProps> = ({ currentUser, addToast 
         });
 
         await new Promise(resolve => setTimeout(resolve, 50));
+        if (cancelled) return;
 
         setSkins([...savedSkins]);
         setSelectedSkinId(activeSkin?.id || null);
@@ -354,6 +357,7 @@ export const SkinManager: React.FC<SkinManagerProps> = ({ currentUser, addToast 
           void syncEquippedSkinFromMojang();
         }, 30000);
       } catch (error) {
+        if (cancelled) return;
         console.error('❌ Error loading skins from localStorage:', error);
         addToast?.(t('toast.loadFailed'), 'error');
         setIsLoadingInitial(false);
@@ -363,6 +367,7 @@ export const SkinManager: React.FC<SkinManagerProps> = ({ currentUser, addToast 
     void initializeSkins();
 
     return () => {
+      cancelled = true;
       hasInitialized.current = false;
       if (syncInterval) clearInterval(syncInterval);
     };

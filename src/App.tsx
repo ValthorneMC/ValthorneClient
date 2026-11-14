@@ -5,6 +5,7 @@ import { CircleCheck, RefreshCw, TriangleAlert } from "lucide-react";
 import { Modal } from "@/components/ui/Modal";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { listenScoped } from "@/utils/listenScoped";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { register } from "@tauri-apps/plugin-global-shortcut";
 import { Button } from "@/components/ui/button";
@@ -128,19 +129,26 @@ const ensureJavaInstalled = async (
     return javaVersion;
   }
 
+  let unlistenProgress: (() => void) | undefined;
+  let unlistenCompleted: (() => void) | undefined;
+  const cleanupListeners = () => {
+    const progress = unlistenProgress, completed = unlistenCompleted;
+    unlistenProgress = unlistenCompleted = undefined;
+    progress?.(); completed?.();
+  };
   try {
     // Show indeterminate progress indicator when starting the download
     void showIndeterminateProgressBar();
 
     // Listen for Java progress events
-    const unlistenProgress = await listen('java-download-progress', (e: any) => {
+    unlistenProgress = await listen('java-download-progress', (e: any) => {
       const data = e.payload as { percentage: number; status: string };
       if (setJavaProgress) {
         setJavaProgress(data.percentage);
       }
     });
     
-    const unlistenCompleted = await listen('java-download-completed', async (e: any) => {
+    unlistenCompleted = await listen('java-download-completed', async (e: any) => {
       try {
         await hideProgressBar();
         // Show notification
@@ -149,8 +157,7 @@ const ensureJavaInstalled = async (
           body: i18n.t('javaInstalled.body', { ns: 'notifications', version: e.payload.version || '' }),
         });
       } catch {}
-      unlistenProgress();
-      unlistenCompleted();
+      cleanupListeners();
     });
     
     await invoke<string>('download_java', { version: javaVersion });
@@ -159,6 +166,8 @@ const ensureJavaInstalled = async (
     void logger.error('Error downloading Java', error, 'ensureJavaInstalled');
     await hideProgressBar();
     throw error;
+  } finally {
+    cleanupListeners();
   }
 };
 
@@ -191,15 +200,21 @@ const launchInstance = async (
       setIsDownloadingAssets(true);
       setDownloadProgress(null);
 
+      let unlistenProgress: (() => void) | undefined;
+      let unlistenCompleted: (() => void) | undefined;
+      const cleanupListeners = () => {
+        const progress = unlistenProgress, completed = unlistenCompleted;
+        unlistenProgress = unlistenCompleted = undefined;
+        progress?.(); completed?.();
+      };
       try {
-        const { listen } = await import('@tauri-apps/api/event');
         void showIndeterminateProgressBar();
         
-        const unlistenProgress = await listen('asset-download-progress', (e: any) => {
+        unlistenProgress = await listen('asset-download-progress', (e: any) => {
           const data = e.payload as AssetDownloadProgress;
           setDownloadProgress(data);
         });
-        const unlistenCompleted = await listen('asset-download-completed', async (e: any) => {
+        unlistenCompleted = await listen('asset-download-completed', async (e: any) => {
           if (e?.payload?.phase && e.payload.phase !== 'complete') {
             return;
           }
@@ -214,8 +229,7 @@ const launchInstance = async (
             body: i18n.t('instanceReady.body', { ns: 'notifications', name: instance.name }),
           });
 
-          unlistenProgress();
-          unlistenCompleted();
+          cleanupListeners();
         });
 
         await invoke<string>('download_instance_assets', {
@@ -223,13 +237,14 @@ const launchInstance = async (
           minecraftVersion: instance.minecraft_version
         });
 
-        unlistenProgress();
-        unlistenCompleted();
+        cleanupListeners();
       } catch (error) {
         void logger.error('Error downloading assets', error, 'launchInstance');
         await hideProgressBar();
         addToast(i18n.t('assetsDownloadFailed', { ns: 'instance' }), 'error');
         throw error;
+      } finally {
+        cleanupListeners();
       }
     }
 
@@ -540,11 +555,9 @@ function App() {
   }, []);
   
   useEffect(() => {
-    let unlisten: (() => void) | undefined;
-    listen('close-requested-during-download', () => {
+    return listenScoped('close-requested-during-download', () => {
       setCloseDialogOpen(true);
-    }).then((fn) => { unlisten = fn; }).catch(() => {});
-    return () => { if (unlisten) { try { unlisten(); } catch {} } };
+    });
   }, []);
   
 
@@ -663,14 +676,14 @@ function App() {
         loaderElement.classList.add('hidden');
       }
     };
-    setTimeout(hideInitialLoader, 100);
+    const initialLoaderTimer = setTimeout(hideInitialLoader, 100);
 
     loadDistribution();
     checkExistingSession().catch((error) => {
       void logger.error('Error in checkExistingSession', error, 'useEffect');
     });
     
-    setTimeout(() => {
+    const initialUpdateTimer = setTimeout(() => {
       checkForUpdatesOnStartup();
     }, 2000);
 
@@ -678,56 +691,57 @@ function App() {
       checkForUpdatesPeriodic();
     }, 30 * 60 * 1000); // 30 minutos
 
-    let unlistenUpdateStart: (() => void) | null = null;
-    let unlistenUpdateProgress: (() => void) | null = null;
-    let unlistenUpdateComplete: (() => void) | null = null;
+    let disposed = false;
+    let updateReadyTimer: ReturnType<typeof setTimeout> | undefined;
     
-    (async () => {
+    const unlistenUpdateStart = listenScoped('update-download-start', async () => {
+      void showIndeterminateProgressBar();
       try {
-        unlistenUpdateStart = await listen('update-download-start', async () => {
-          void showIndeterminateProgressBar();
-          try {
-            const state = await UpdaterService.getUpdateState();
-            if (state.available_version) {
-              setUpdateDownloadVersion(state.available_version);
-              setUpdateDownloadProgress(0);
-            }
-          } catch (error) {
-            void logger.error('Error getting update state', error, 'update-download-start');
-            setUpdateDownloadProgress(0);
-          }
-        });
-        
-        unlistenUpdateProgress = await listen<number>('update-download-progress', (event) => {
-          const progress = event.payload;
-          setUpdateDownloadProgress(progress);
-        });
-        
-        unlistenUpdateComplete = await listen('update-download-complete', async () => {
-          setUpdateDownloadProgress(100);
-          await hideProgressBar();
-          setTimeout(async () => {
-            const state = await UpdaterService.getUpdateState();
-            if (state.available_version && state.available_version === state.current_version) {
-              await invoke('clear_update_state');
-              setUpdateDownloadProgress(null);
-              setUpdateDownloadVersion(null);
-              return;
-            }
-            if (state.download_ready && state.available_version) {
-              setUpdateDownloadProgress(null);
-              setUpdateDownloadVersion(null);
-              setUpdateReadyVersion(state.available_version);
-            }
-          }, 500);
-        });
+        const state = await UpdaterService.getUpdateState();
+        if (disposed) return;
+        if (state.available_version) {
+          setUpdateDownloadVersion(state.available_version);
+          setUpdateDownloadProgress(0);
+        }
       } catch (error) {
-        void logger.error('Error setting up update event listeners', error, 'useEffect');
+        if (disposed) return;
+        void logger.error('Error getting update state', error, 'update-download-start');
+        setUpdateDownloadProgress(0);
       }
-    })();
+    });
+
+    const unlistenUpdateProgress = listenScoped<number>('update-download-progress', (event) => {
+      const progress = event.payload;
+      setUpdateDownloadProgress(progress);
+    });
+
+    const unlistenUpdateComplete = listenScoped('update-download-complete', async () => {
+      setUpdateDownloadProgress(100);
+      await hideProgressBar();
+      if (disposed) return;
+      updateReadyTimer = setTimeout(async () => {
+        const state = await UpdaterService.getUpdateState();
+        if (disposed) return;
+        if (state.available_version && state.available_version === state.current_version) {
+          await invoke('clear_update_state');
+          setUpdateDownloadProgress(null);
+          setUpdateDownloadVersion(null);
+          return;
+        }
+        if (state.download_ready && state.available_version) {
+          setUpdateDownloadProgress(null);
+          setUpdateDownloadVersion(null);
+          setUpdateReadyVersion(state.available_version);
+        }
+      }, 500);
+    });
 
     return () => {
+      disposed = true;
+      clearTimeout(updateReadyTimer);
       clearInterval(updateCheckInterval);
+      clearTimeout(initialLoaderTimer);
+      clearTimeout(initialUpdateTimer);
       if (unlistenUpdateStart) unlistenUpdateStart();
       if (unlistenUpdateProgress) unlistenUpdateProgress();
       if (unlistenUpdateComplete) unlistenUpdateComplete();
