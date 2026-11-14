@@ -16,8 +16,42 @@ interface SkinRendererConfig {
 
 const modelCache: Map<string, GLTF> = new Map();
 const modelPromiseCache: Map<string, Promise<GLTF>> = new Map();
-const textureCache: Map<string, Texture> = new Map();
-const texturePromiseCache: Map<string, Promise<Texture>> = new Map();
+interface TextureEntry {
+  url: string;
+  promise: Promise<Texture>;
+  texture?: Texture;
+  references: number;
+  invalidated: boolean;
+}
+
+export interface TextureLease {
+  texture: Promise<Texture>;
+  release(): void;
+}
+
+const MAX_IDLE_TEXTURES = 32;
+const textureCache = new Map<string, TextureEntry>();
+
+function evictTexture(key: string, entry: TextureEntry) {
+  if (textureCache.get(key) === entry) textureCache.delete(key);
+  entry.invalidated = true;
+  if (entry.references === 0 && entry.texture) {
+    entry.texture.dispose();
+    entry.texture = undefined;
+  }
+}
+
+function trimTextures() {
+  const idle: [string, TextureEntry][] = [];
+  for (const [key, entry] of textureCache) {
+    if (entry.references !== 0) continue;
+    if (!entry.texture || entry.url.startsWith('blob:') || entry.invalidated) evictTexture(key, entry);
+    else idle.push([key, entry]);
+  }
+  for (const [key, entry] of idle.slice(0, Math.max(0, idle.length - MAX_IDLE_TEXTURES))) {
+    evictTexture(key, entry);
+  }
+}
 
 export async function loadModel(modelUrl: string): Promise<GLTF> {
   if (modelCache.has(modelUrl)) {
@@ -47,51 +81,56 @@ export async function loadModel(modelUrl: string): Promise<GLTF> {
   return promise;
 }
 
-export async function loadTexture(
-  textureUrl: string,
-  config: SkinRendererConfig = {},
-): Promise<Texture> {
-  const cacheKey = `${textureUrl}_${JSON.stringify(config)}`;
-
-  if (textureCache.has(cacheKey)) {
-    return textureCache.get(cacheKey)!;
-  }
-
-  if (texturePromiseCache.has(cacheKey)) {
-    return texturePromiseCache.get(cacheKey)!;
-  }
-
-  const textureLoader = new TextureLoader();
-  const promise = new Promise<Texture>((resolve, reject) => {
-    textureLoader.load(
-      textureUrl,
-      (texture) => {
+export function acquireTexture(textureUrl: string, config: SkinRendererConfig = {}): TextureLease {
+  const key = `${textureUrl}_${JSON.stringify(config)}`;
+  let entry = textureCache.get(key);
+  if (entry) {
+    entry.references++;
+    textureCache.delete(key);
+    textureCache.set(key, entry);
+  } else {
+    const created: TextureEntry = {
+      url: textureUrl,
+      promise: undefined!,
+      references: 1,
+      invalidated: false,
+    };
+    entry = created;
+    textureCache.set(key, created);
+    created.promise = new Promise<Texture>((resolve, reject) => {
+      new TextureLoader().load(textureUrl, texture => {
         texture.colorSpace = config.textureColorSpace ?? SRGBColorSpace;
         texture.flipY = config.textureFlipY ?? false;
         texture.magFilter = config.textureMagFilter ?? NearestFilter;
         texture.minFilter = config.textureMinFilter ?? NearestFilter;
-
-        textureCache.set(cacheKey, texture);
+        created.texture = texture;
+        if (created.invalidated) evictTexture(key, created);
+        trimTextures();
         resolve(texture);
-      },
-      undefined,
-      reject,
-    );
-  }).finally(() => {
-    texturePromiseCache.delete(cacheKey);
-  });
-
-  texturePromiseCache.set(cacheKey, promise);
-  return promise;
+      }, undefined, reject);
+    }).catch(error => {
+      evictTexture(key, created);
+      throw error;
+    });
+  }
+  const owned = entry;
+  let released = false;
+  return {
+    texture: owned.promise,
+    release() {
+      if (released) return;
+      released = true;
+      owned.references--;
+      if (owned.invalidated) evictTexture(key, owned);
+      trimTextures();
+    },
+  };
 }
 
-/** Disposes and evicts every cached texture loaded from `textureUrl`, regardless of config. */
+/** Invalidates a URL without disposing a texture still used by another preview. */
 export function releaseTexture(textureUrl: string): void {
-  for (const key of textureCache.keys()) {
-    if (key.startsWith(`${textureUrl}_`)) {
-      textureCache.get(key)?.dispose();
-      textureCache.delete(key);
-    }
+  for (const [key, entry] of textureCache) {
+    if (entry.url === textureUrl) evictTexture(key, entry);
   }
 }
 

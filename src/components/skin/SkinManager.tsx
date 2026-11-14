@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { ImageUp, Info, Pencil, Plus, Save, UploadCloud, X } from 'lucide-react';
 import { SkinPreviewRenderer } from './SkinPreviewRenderer';
 import { releaseTexture } from '@/lib/skin-rendering/skin-rendering';
+import { useSkinObjectUrls } from '@/hooks/skin-rendering/useSkinObjectUrls';
 import { SkinData, SkinModel, CapeData } from '@/types/skin';
 import { SkinStorageService } from '@/services/skin/skinStorage';
 import { getBestSkinTextureUrl } from '@/services/avatarService';
@@ -98,7 +99,7 @@ export const SkinManager: React.FC<SkinManagerProps> = ({ currentUser, addToast 
   const [isLoadingInitial, setIsLoadingInitial] = useState(true);
   const [isImportingExternal, setIsImportingExternal] = useState(false);
   const hasInitialized = useRef(false);
-  const blobUrlsRef = useRef<Map<string, string>>(new Map());
+  const blobUrlsRef = useSkinObjectUrls();
   const skinsRef = useRef<SkinData[]>([]);
   const selectedSkinIdRef = useRef<string | null>(null);
 
@@ -115,6 +116,13 @@ export const SkinManager: React.FC<SkinManagerProps> = ({ currentUser, addToast 
   const [pendingTextureFile, setPendingTextureFile] = useState<File | null>(null);
   const [pendingTexturePreviewUrl, setPendingTexturePreviewUrl] = useState<string | null>(null);
   const [isSavingEdits, setIsSavingEdits] = useState(false);
+
+  useEffect(() => () => {
+    if (pendingTexturePreviewUrl) {
+      releaseTexture(pendingTexturePreviewUrl);
+      URL.revokeObjectURL(pendingTexturePreviewUrl);
+    }
+  }, [pendingTexturePreviewUrl]);
 
   // The skin actually equipped right now: an external (unsaved) skin takes priority
   // over the local library, since it reflects the true current state on Mojang.
@@ -589,9 +597,6 @@ export const SkinManager: React.FC<SkinManagerProps> = ({ currentUser, addToast 
 
     try {
       if (blobUrlsRef.current.has(skinId)) {
-        const blobUrl = blobUrlsRef.current.get(skinId)!;
-        releaseTexture(blobUrl);
-        URL.revokeObjectURL(blobUrl);
         blobUrlsRef.current.delete(skinId);
       }
 
@@ -678,10 +683,6 @@ export const SkinManager: React.FC<SkinManagerProps> = ({ currentUser, addToast 
   }, []);
 
   const handleCloseEditModal = useCallback(() => {
-    if (pendingTexturePreviewUrl) {
-      releaseTexture(pendingTexturePreviewUrl);
-      URL.revokeObjectURL(pendingTexturePreviewUrl);
-    }
     setShowEditModal(false);
     setPendingTextureFile(null);
     setPendingTexturePreviewUrl(null);
@@ -702,10 +703,6 @@ export const SkinManager: React.FC<SkinManagerProps> = ({ currentUser, addToast 
       return;
     }
 
-    if (pendingTexturePreviewUrl) {
-      releaseTexture(pendingTexturePreviewUrl);
-      URL.revokeObjectURL(pendingTexturePreviewUrl);
-    }
 
     setPendingTextureFile(file);
     setPendingTexturePreviewUrl(URL.createObjectURL(file));
@@ -735,9 +732,6 @@ export const SkinManager: React.FC<SkinManagerProps> = ({ currentUser, addToast 
 
       if (textureChanged) {
         if (blobUrlsRef.current.has(activeSkin.id)) {
-          const oldBlobUrl = blobUrlsRef.current.get(activeSkin.id)!;
-          releaseTexture(oldBlobUrl);
-          URL.revokeObjectURL(oldBlobUrl);
           blobUrlsRef.current.delete(activeSkin.id);
         }
         const blob = new Blob([workingSkin.fileData!], { type: 'image/png' });
