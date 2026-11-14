@@ -63,6 +63,9 @@ export async function loadModel(modelUrl: string): Promise<GLTF> {
   }
 
   const loader = new GLTFLoader();
+  // Player materials are replaced by the selected skin/cape before rendering.
+  const placeholder = createTransparentTexture();
+  loader.register(() => ({ name: 'valthorne-preview-textures', loadTexture: () => Promise.resolve(placeholder) }));
   const promise = new Promise<GLTF>((resolve, reject) => {
     loader.load(
       modelUrl,
@@ -71,7 +74,7 @@ export async function loadModel(modelUrl: string): Promise<GLTF> {
         resolve(gltf);
       },
       undefined,
-      reject,
+      error => { placeholder.dispose(); reject(error); },
     );
   }).finally(() => {
     modelPromiseCache.delete(modelUrl);
