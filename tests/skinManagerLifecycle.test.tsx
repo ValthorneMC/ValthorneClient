@@ -1,0 +1,33 @@
+import { act } from 'react';
+import { createRoot } from 'react-dom/client';
+import { afterEach, expect, test, vi } from 'vitest';
+vi.mock('@/services/skin/skinStorage', () => ({ SkinStorageService: { getStoredSkins: vi.fn(), getActiveSkin: vi.fn(async () => null), getLocalActiveCapeId: vi.fn(() => null) } }));
+vi.mock('@/components/skin/SkinPreviewRenderer', () => ({ SkinPreviewRenderer: () => null }));
+vi.mock('@/utils/logger', () => ({ logger: { error: vi.fn() } }));
+vi.mock('@/i18n', () => ({ translateBackendError: () => '' }));
+vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
+vi.mock('react-dropzone', () => ({ useDropzone: () => ({ getRootProps: () => ({}), getInputProps: () => ({}), isDragActive: false }) }));
+import { SkinManager } from '../src/components/skin/SkinManager';
+import { SkinStorageService } from '../src/services/skin/skinStorage';
+(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
+afterEach(() => { vi.useRealTimers(); });
+test('does not start polling when initial storage reads finish after unmount', async () => {
+  let complete!: (value: []) => void;
+  vi.mocked(SkinStorageService.getStoredSkins).mockReturnValue(new Promise(resolve => complete = resolve));
+  const interval = vi.spyOn(globalThis, 'setInterval');
+  const root = createRoot(document.createElement('div'));
+  await act(async () => root.render(<SkinManager currentUser={null} />));
+  await act(async () => root.unmount());
+  await act(async () => complete([]));
+  expect(interval).not.toHaveBeenCalled();
+});
+test('does not start polling when unmounted during the initial display delay', async () => {
+  vi.useFakeTimers();
+  vi.mocked(SkinStorageService.getStoredSkins).mockResolvedValue([]);
+  const interval = vi.spyOn(globalThis, 'setInterval');
+  const root = createRoot(document.createElement('div'));
+  await act(async () => root.render(<SkinManager currentUser={null} />));
+  await act(async () => root.unmount());
+  await act(async () => vi.runAllTimersAsync());
+  expect(interval).not.toHaveBeenCalled();
+});

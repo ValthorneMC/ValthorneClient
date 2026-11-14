@@ -1,9 +1,9 @@
 // Ported from Modrinth (packages/ui/src/composables/skin-rendering/use-skin-preview-scene.ts)
 // Vue's useGLTF()/useTexture() (Tres/cientos) are replaced with the plain Three.js
-// GLTFLoader/TextureLoader wrapped in loadModel()/loadTexture() from skin-rendering.ts,
+// GLTFLoader/TextureLoader wrapped in loadModel()/acquireTexture() from skin-rendering.ts,
 // since this project does not use a Vue-only Three.js reconciler.
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { MeshStandardMaterial, Box3, Vector3 } from 'three';
 import type { Mesh, Object3D, Material, AnimationClip, Texture } from 'three';
 import { clone as cloneSkeleton } from 'three/examples/jsm/utils/SkeletonUtils.js';
@@ -13,7 +13,7 @@ import {
   applyTexture,
   createTransparentTexture,
   loadModel as loadGltfModel,
-  loadTexture as loadSkinTexture,
+  acquireTexture,
 } from '@/lib/skin-rendering/skin-rendering';
 import type { SkinPreviewTuple } from '@/lib/skin-rendering/types';
 
@@ -100,12 +100,14 @@ function getVisibleMeshBox(root: Object3D): Box3 | null {
 }
 
 export function useSkinPreviewScene({
+  enabled = true,
   selectedModelSrc,
   textureSrc,
   capeSrc,
   initializeAnimations,
   cleanupAnimationState,
 }: {
+  enabled?: boolean;
   selectedModelSrc: string;
   textureSrc: string;
   capeSrc: string | undefined;
@@ -119,229 +121,89 @@ export function useSkinPreviewScene({
   const [modelCenter, setModelCenter] = useState<SkinPreviewTuple>([0, 1, 0]);
   const [modelSize, setModelSize] = useState<SkinPreviewTuple>([1, 2, 1]);
 
-  const loadedModelSrcRef = useRef<string | undefined>(undefined);
-  const loadedTextureSrcRef = useRef<string | undefined>(undefined);
-  const loadedCapeSrcRef = useRef<string | undefined>(undefined);
-  const lastCapeSrcRef = useRef<string | undefined>(undefined);
   const textureRef = useRef<Texture | null>(null);
   const capeTextureRef = useRef<Texture | null>(null);
   const transparentTextureRef = useRef<Texture | null>(null);
+  const callbacks = useRef({ initializeAnimations, cleanupAnimationState });
+  callbacks.current = { initializeAnimations, cleanupAnimationState };
 
-  const modelLoadVersionRef = useRef(0);
-  const textureLoadVersionRef = useRef(0);
-  const capeLoadVersionRef = useRef(0);
-  const isUnmountedRef = useRef(false);
-
-  const initializeAnimationsRef = useRef(initializeAnimations);
-  initializeAnimationsRef.current = initializeAnimations;
-  const cleanupAnimationStateRef = useRef(cleanupAnimationState);
-  cleanupAnimationStateRef.current = cleanupAnimationState;
-
-  if (!transparentTextureRef.current && typeof document !== 'undefined') {
-    transparentTextureRef.current = createTransparentTexture();
-  }
-
-  const updateModelInfo = useCallback(() => {
-    const box = sceneRef.current ? getVisibleMeshBox(sceneRef.current) : null;
-
-    if (!box) {
-      setModelCenter([0, 1, 0]);
-      setModelSize([1, 2, 1]);
-      return;
-    }
-
-    const center = new Vector3();
-    const size = new Vector3();
-
-    box.getCenter(center);
-    box.getSize(size);
-
-    setModelCenter([center.x, center.y, center.z]);
-    setModelSize([Math.max(size.x, 0.001), Math.max(size.y, 0.001), Math.max(size.z, 0.001)]);
-  }, []);
-
-  const applyTextureToLoadedModel = useCallback(() => {
-    if (
-      !sceneRef.current ||
-      !textureRef.current ||
-      loadedModelSrcRef.current !== selectedModelSrc ||
-      loadedTextureSrcRef.current !== textureSrc
-    ) {
-      return;
-    }
-
-    applyTexture(sceneRef.current, textureRef.current);
-  }, [selectedModelSrc, textureSrc]);
-
-  const applyCapeTextureToLoadedModel = useCallback(() => {
-    if (!sceneRef.current || loadedModelSrcRef.current !== selectedModelSrc) return;
-
-    applyCapeTexture(
-      sceneRef.current,
-      loadedCapeSrcRef.current === capeSrc ? capeTextureRef.current : null,
-      transparentTextureRef.current ?? undefined,
-    );
-  }, [selectedModelSrc, capeSrc]);
-
-  const loadAndApplyTexture = useCallback(async (src: string): Promise<Texture | null> => {
-    if (!src) return null;
-
-    try {
-      return await loadSkinTexture(src);
-    } catch (error) {
-      console.error('Failed to load texture:', error);
-      return null;
-    }
-  }, []);
-
-  const loadModel = useCallback(
-    async (src: string) => {
-      const loadVersion = ++modelLoadVersionRef.current;
-
-      try {
-        setIsModelLoaded(false);
-        const gltf = await loadGltfModel(src);
-        const clonedScene = cloneSceneForRenderer(gltf.scene);
-        if (isUnmountedRef.current || loadVersion !== modelLoadVersionRef.current) {
-          disposeSceneMaterials(clonedScene);
-          return;
-        }
-
-        const previousScene = sceneRef.current;
-        cleanupAnimationStateRef.current(previousScene);
-        disposeSceneMaterials(previousScene);
-        sceneRef.current = clonedScene;
-        setScene(clonedScene);
-        loadedModelSrcRef.current = src;
-
-        applyTextureToLoadedModel();
-        applyCapeTextureToLoadedModel();
-
-        if (gltf.animations && gltf.animations.length > 0) {
-          initializeAnimationsRef.current(clonedScene, gltf.animations);
-        }
-
-        updateModelInfo();
-        setIsModelLoaded(true);
-      } catch (error) {
-        console.error('Failed to load model:', error);
-        if (!isUnmountedRef.current && loadVersion === modelLoadVersionRef.current) {
-          setIsModelLoaded(false);
-        }
-      }
-    },
-    [applyCapeTextureToLoadedModel, applyTextureToLoadedModel, updateModelInfo],
-  );
-
-  const loadAndApplyCapeTexture = useCallback(
-    async (src: string | undefined) => {
-      if (src === lastCapeSrcRef.current) return;
-
-      const loadVersion = ++capeLoadVersionRef.current;
-      lastCapeSrcRef.current = src;
-
-      let loadedCapeTexture: Texture | null = null;
-      if (src) {
-        loadedCapeTexture = await loadAndApplyTexture(src);
-      }
-      if (isUnmountedRef.current || loadVersion !== capeLoadVersionRef.current) return;
-
-      capeTextureRef.current = loadedCapeTexture;
-      loadedCapeSrcRef.current = src;
-      applyCapeTextureToLoadedModel();
-    },
-    [applyCapeTextureToLoadedModel, loadAndApplyTexture],
-  );
-
-  // Initial mount: load texture, model, cape (mirrors Vue's onBeforeMount).
   useEffect(() => {
-    isUnmountedRef.current = false;
-
-    (async () => {
-      try {
-        setIsTextureLoaded(false);
-        textureRef.current = await loadAndApplyTexture(textureSrc);
-        loadedTextureSrcRef.current = textureSrc;
-        setIsTextureLoaded(true);
-
-        await loadModel(selectedModelSrc);
-
-        if (capeSrc) {
-          await loadAndApplyCapeTexture(capeSrc);
-        }
-      } catch (error) {
-        console.error('Failed to initialize skin preview:', error);
-      }
-    })();
-
+    if (!enabled) return;
+    let cancelled = false;
+    const transparent = createTransparentTexture();
+    transparentTextureRef.current = transparent;
+    setIsModelLoaded(false);
+    void loadGltfModel(selectedModelSrc).then(gltf => {
+      if (cancelled) return;
+      const cloned = cloneSceneForRenderer(gltf.scene);
+      sceneRef.current = cloned;
+      applyTexture(cloned, textureRef.current ?? transparent);
+      applyCapeTexture(cloned, capeTextureRef.current, transparent);
+      if (gltf.animations?.length) callbacks.current.initializeAnimations(cloned, gltf.animations);
+      const box = getVisibleMeshBox(cloned);
+      const center = box?.getCenter(new Vector3()) ?? new Vector3(0, 1, 0);
+      const size = box?.getSize(new Vector3()) ?? new Vector3(1, 2, 1);
+      setModelCenter([center.x, center.y, center.z]);
+      setModelSize([Math.max(size.x, 0.001), Math.max(size.y, 0.001), Math.max(size.z, 0.001)]);
+      setScene(cloned);
+      setIsModelLoaded(true);
+    }).catch(error => {
+      if (!cancelled) console.error('Failed to load model:', error);
+    });
     return () => {
-      isUnmountedRef.current = true;
-      modelLoadVersionRef.current++;
-      textureLoadVersionRef.current++;
-      capeLoadVersionRef.current++;
-
-      cleanupAnimationStateRef.current(sceneRef.current);
-      disposeSceneMaterials(sceneRef.current);
+      cancelled = true;
+      const current = sceneRef.current;
+      callbacks.current.cleanupAnimationState(current);
+      disposeSceneMaterials(current);
       sceneRef.current = null;
       setScene(null);
-      transparentTextureRef.current?.dispose();
+      setIsModelLoaded(false);
+      transparent.dispose();
       transparentTextureRef.current = null;
     };
-    // Mount/unmount only - model/texture/cape src changes are handled by the watch-equivalent
-    // effects below, matching the Vue composable's separate watch() handlers.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [enabled, selectedModelSrc]);
 
-  // watch(selectedModelSrc)
-  const isFirstModelRunRef = useRef(true);
   useEffect(() => {
-    if (isFirstModelRunRef.current) {
-      isFirstModelRunRef.current = false;
-      return;
-    }
-    loadModel(selectedModelSrc);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedModelSrc]);
-
-  // watch(textureSrc)
-  const isFirstTextureRunRef = useRef(true);
-  useEffect(() => {
-    if (isFirstTextureRunRef.current) {
-      isFirstTextureRunRef.current = false;
-      return;
-    }
-
-    const loadVersion = ++textureLoadVersionRef.current;
-
-    (async () => {
-      setIsTextureLoaded(false);
-      const loadedTexture = await loadAndApplyTexture(textureSrc);
-      if (isUnmountedRef.current || loadVersion !== textureLoadVersionRef.current) return;
-
-      textureRef.current = loadedTexture;
-      loadedTextureSrcRef.current = textureSrc;
-      applyTextureToLoadedModel();
+    if (!enabled) return;
+    let cancelled = false;
+    const lease = textureSrc ? acquireTexture(textureSrc) : null;
+    setIsTextureLoaded(false);
+    void (lease?.texture ?? Promise.resolve(null)).then(texture => {
+      if (cancelled) return;
+      textureRef.current = texture;
+      if (sceneRef.current && texture) applyTexture(sceneRef.current, texture);
       setIsTextureLoaded(true);
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [textureSrc]);
+    }).catch(error => {
+      if (!cancelled) console.error('Failed to load texture:', error);
+    });
+    return () => {
+      cancelled = true;
+      textureRef.current = null;
+      if (sceneRef.current && transparentTextureRef.current) {
+        applyTexture(sceneRef.current, transparentTextureRef.current);
+      }
+      lease?.release();
+    };
+  }, [enabled, textureSrc]);
 
-  // watch(capeSrc)
-  const isFirstCapeRunRef = useRef(true);
   useEffect(() => {
-    if (isFirstCapeRunRef.current) {
-      isFirstCapeRunRef.current = false;
-      return;
-    }
-    loadAndApplyCapeTexture(capeSrc);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [capeSrc]);
+    if (!enabled) return;
+    let cancelled = false;
+    const lease = capeSrc ? acquireTexture(capeSrc) : null;
+    void (lease?.texture ?? Promise.resolve(null)).then(texture => {
+      if (cancelled) return;
+      capeTextureRef.current = texture;
+      if (sceneRef.current) applyCapeTexture(sceneRef.current, texture, transparentTextureRef.current ?? undefined);
+    }).catch(error => {
+      if (!cancelled) console.error('Failed to load cape:', error);
+    });
+    return () => {
+      cancelled = true;
+      capeTextureRef.current = null;
+      if (sceneRef.current) applyCapeTexture(sceneRef.current, null, transparentTextureRef.current ?? undefined);
+      lease?.release();
+    };
+  }, [enabled, capeSrc]);
 
-  return {
-    isModelLoaded,
-    isTextureLoaded,
-    modelCenter,
-    modelSize,
-    scene,
-  };
+  return { isModelLoaded, isTextureLoaded, modelCenter, modelSize, scene };
 }

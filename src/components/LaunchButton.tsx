@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Square } from 'lucide-react';
-import { listen } from '@tauri-apps/api/event';
+import { listenScoped } from '@/utils/listenScoped';
 import { invoke } from '@tauri-apps/api/core';
 import { Button } from '@/components/ui/button';
 import { logger } from '@/utils/logger';
@@ -89,8 +89,7 @@ const LaunchButton: React.FC<LaunchButtonProps> = ({
 
 	// Reset when the Minecraft process exits (only for this instance)
 	useEffect(() => {
-		let unlisten: (() => void) | undefined;
-		listen('minecraft_exited', (event: any) => {
+		return listenScoped('minecraft_exited', (event: any) => {
 			const data = event.payload;
 			// Only process if the event is for this instance
 			if (data.instance_id !== instanceId) {
@@ -114,8 +113,7 @@ const LaunchButton: React.FC<LaunchButtonProps> = ({
 			// Clear cache when the game exits
 			launchStateCache.delete(instanceId);
 			startTimeRef.current = Date.now();
-		}).then((fn) => { unlisten = fn; }).catch(() => {});
-		return () => { if (unlisten) { try { unlisten(); } catch {} } };
+		});
 	}, [instanceId]);
 
 	const handleClick = async () => {
