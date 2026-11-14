@@ -80,7 +80,7 @@ jobs:
 
       - name: Test Rust
         if: matrix.args != '--target x86_64-apple-darwin'
-        run: cargo test --manifest-path src-tauri/Cargo.toml --lib --jobs 2
+        run: cargo test --locked --manifest-path src-tauri/Cargo.toml --lib --jobs 2
 
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v1
@@ -97,7 +97,7 @@ jobs:
         with:
           projectPath: src-tauri
           tauriScript: pnpm tauri
-          args: ${{ matrix.args }}
+          args: ${{ matrix.args }} -- --locked
           tagName: v${{ steps.version.outputs.value }}
           releaseName: 'Valthorne Client v${{ steps.version.outputs.value }}'
           releaseBody: 'Automated release from commit ${{ github.sha }}'
