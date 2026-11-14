@@ -18,6 +18,7 @@ mod models;
 mod versions;
 mod launcher;
 mod java_install;
+mod launch_preparation;
 mod utils;
 mod sessions_api;
 mod instances;
@@ -80,7 +81,27 @@ async fn launch_minecraft_with_java(
         return Err(format!("Instance directory does not exist: {}", instance_dir.display()));
     }
 
-    launch_minecraft_with_auth(&app_handle, &instance_id, &minecraft_version, &java_path, &access_token, min_ram_gb, max_ram_gb).await
+    launch_minecraft_with_auth(&app_handle, &instance_id, &minecraft_version, &java_path, &access_token, min_ram_gb, max_ram_gb, None).await
+}
+
+#[tauri::command]
+async fn prepare_and_launch_minecraft(
+    app_handle: tauri::AppHandle,
+    state: tauri::State<'_, Arc<Mutex<bool>>>,
+    instance_id: String,
+    java_path: String,
+    minecraft_version: String,
+    access_token: String,
+    min_ram_gb: Option<f64>,
+    max_ram_gb: Option<f64>,
+) -> Result<String, String> {
+    if let Ok(mut downloading) = state.lock() { *downloading = true; }
+    let result = async {
+        let prepared = crate::commands::prepare_instance_assets(instance_id.clone(), minecraft_version.clone(), app_handle.clone()).await?;
+        launch_minecraft_with_auth(&app_handle, &instance_id, &minecraft_version, &java_path, &access_token, min_ram_gb, max_ram_gb, Some(prepared)).await
+    }.await;
+    if let Ok(mut downloading) = state.lock() { *downloading = false; }
+    result
 }
 
 /// Finds the Fabric profile JSON, or falls back to the vanilla version's JSON
@@ -102,12 +123,16 @@ async fn launch_minecraft_with_auth(
     java_path: &str,
     access_token: &str,
     min_ram_gb: Option<f64>,
-    max_ram_gb: Option<f64>
+    max_ram_gb: Option<f64>,
+    prepared: Option<crate::launch_preparation::PreparedAssets>,
 ) -> Result<String, String> {
     let instance_dir = crate::launcher::get_instance_directory(instance_id);
 
-    ensure_minecraft_client_present(&instance_dir, minecraft_version).await?;
-    crate::instances::ensure_version_libraries(&instance_dir, minecraft_version).await?;
+    let asset_index_id = crate::launch_preparation::resolve(prepared, || async {
+        ensure_minecraft_client_present(&instance_dir, minecraft_version).await?;
+        crate::instances::ensure_version_libraries(&instance_dir, minecraft_version).await?;
+        ensure_assets_present(app_handle, &instance_dir, minecraft_version, (0.0, 100.0)).await
+    }).await?;
 
     let _ = std::fs::create_dir_all(instance_dir.join("libraries"));
     let _ = std::fs::create_dir_all(instance_dir.join("mods"));
@@ -129,7 +154,6 @@ async fn launch_minecraft_with_auth(
     jvm_args.extend(crate::launcher::get_runtime_dir_jvm_args(&instance_dir));
     jvm_args.extend(crate::launcher::get_mod_loader_jvm_args(&instance_dir));
     
-    let asset_index_id = ensure_assets_present(app_handle, &instance_dir, minecraft_version, (0.0, 100.0)).await?;
 
     let profile = crate::auth_ms::get_minecraft_profile_from_token(access_token).await
         .map_err(|e| e.to_string())?;
@@ -319,6 +343,7 @@ pub fn run() {
             get_instance_background_video,
             create_instance_directory,
             launch_minecraft_with_java,
+            prepare_and_launch_minecraft,
             get_required_java_version_command,
             check_java_version,
             download_java,

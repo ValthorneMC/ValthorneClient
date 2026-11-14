@@ -746,7 +746,7 @@ pub async fn download_instance_assets(
         *downloading = true;
     }
 
-    let result = download_instance_assets_inner(instance_id, minecraft_version, app_handle).await;
+    let result = prepare_instance_assets(instance_id, minecraft_version, app_handle).await.map(|_| "ok".to_string());
 
     if let Ok(mut downloading) = state.lock() {
         *downloading = false;
@@ -765,28 +765,32 @@ fn emit_stage(app_handle: &AppHandle, percentage: u32, status: &str) {
     }));
 }
 
-async fn download_instance_assets_inner(
+pub(crate) async fn prepare_instance_assets(
     instance_id: String,
     minecraft_version: String,
     app_handle: AppHandle,
-) -> Result<String, String> {
+) -> Result<crate::launch_preparation::PreparedAssets, String> {
     let instance_dir = crate::utils::valthorne_dir().join(&instance_id);
     let _ = tokio::fs::create_dir_all(instance_dir.join("libraries")).await;
     let _ = tokio::fs::create_dir_all(instance_dir.join("mods")).await;
     emit_stage(&app_handle, 0, "Starting");
-    emit_stage(&app_handle, 1, "Version");
-    crate::instances::ensure_minecraft_client_present(&instance_dir, &minecraft_version).await?;
-
     let manifest = crate::dist::fetch_manifest().await?;
+    if manifest.minecraft_version != minecraft_version {
+        return Err("Distribution version changed; reload the launcher before launching".to_string());
+    }
+    emit_stage(&app_handle, 1, "Instance");
+    crate::dist::sync_instance(&app_handle, &instance_dir, &manifest, (1.0, 10.0)).await?;
+    emit_stage(&app_handle, 10, "Version");
+    crate::instances::ensure_minecraft_client_present(&instance_dir, &minecraft_version).await?;
 
     let mut installed_mod_loader_version_id: Option<String> = None;
     if let Some(mod_loader) = manifest.mod_loader.as_ref() {
-        emit_stage(&app_handle, 3, "ModLoader");
+        emit_stage(&app_handle, 12, "ModLoader");
         installed_mod_loader_version_id = crate::instances::install_mod_loader(&minecraft_version, mod_loader, &instance_dir).await?;
     }
 
-    emit_stage(&app_handle, 10, "Mojang");
-    let _ = crate::instances::ensure_assets_present(&app_handle, &instance_dir, &minecraft_version, (10.0, 85.0)).await?;
+    emit_stage(&app_handle, 20, "Mojang");
+    let asset_index_id = crate::instances::ensure_assets_present(&app_handle, &instance_dir, &minecraft_version, (20.0, 85.0)).await?;
 
     emit_stage(&app_handle, 85, "Libraries");
     crate::instances::ensure_version_libraries(&instance_dir, &minecraft_version).await?;
@@ -794,13 +798,10 @@ async fn download_instance_assets_inner(
         crate::instances::ensure_mod_loader_libraries(&instance_dir, version_id).await?;
     }
 
-    emit_stage(&app_handle, 90, "Instance");
-    crate::dist::sync_instance(&app_handle, &instance_dir, &manifest).await?;
-
     emit_stage(&app_handle, 100, "Completed");
     let _ = app_handle.emit("asset-download-completed", serde_json::json!({ "phase": "complete" }));
 
-    Ok("ok".to_string())
+    Ok(crate::launch_preparation::PreparedAssets { asset_index_id })
 }
 
 #[tauri::command]

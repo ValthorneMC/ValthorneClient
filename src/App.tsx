@@ -17,10 +17,13 @@ import Sidebar from "@/components/Sidebar";
 import UserProfile from "@/components/UserProfile";
 import SettingsView from "@/components/SettingsView";
 import InstanceView from "@/components/InstanceView";
-import HomeScreen from "@/components/HomeScreen";
 import { SkinManager } from "@/components/skin/SkinManager";
+
+import HomeScreen from "@/components/HomeScreen";
+
 import { sendNotificationSafe, initializeNotificationPermissions } from "@/utils/notifications";
 import { showIndeterminateProgressBar, hideProgressBar } from "@/utils/progressBar";
+import { prepareAndLaunch } from "@/services/preparedLaunch";
 import { UpdaterService } from "@/services/updater";
 import { SessionService } from "@/services/sessions";
 import valthorneLogoFullText from "@/assets/logo_full_text.svg";
@@ -196,58 +199,6 @@ const launchInstance = async (
       javaVersion: javaVersion
     });
 
-    if (setIsDownloadingAssets && setDownloadProgress) {
-      setIsDownloadingAssets(true);
-      setDownloadProgress(null);
-
-      let unlistenProgress: (() => void) | undefined;
-      let unlistenCompleted: (() => void) | undefined;
-      const cleanupListeners = () => {
-        const progress = unlistenProgress, completed = unlistenCompleted;
-        unlistenProgress = unlistenCompleted = undefined;
-        progress?.(); completed?.();
-      };
-      try {
-        void showIndeterminateProgressBar();
-        
-        unlistenProgress = await listen('asset-download-progress', (e: any) => {
-          const data = e.payload as AssetDownloadProgress;
-          setDownloadProgress(data);
-        });
-        unlistenCompleted = await listen('asset-download-completed', async (e: any) => {
-          if (e?.payload?.phase && e.payload.phase !== 'complete') {
-            return;
-          }
-
-          setDownloadProgress({ current: 100, total: 100, percentage: 100, current_file: '', status: 'Completed' });
-          try {
-            await hideProgressBar();
-          } catch {}
-
-          await sendNotificationSafe({
-            title: i18n.t('instanceReady.title', { ns: 'notifications' }),
-            body: i18n.t('instanceReady.body', { ns: 'notifications', name: instance.name }),
-          });
-
-          cleanupListeners();
-        });
-
-        await invoke<string>('download_instance_assets', {
-          instanceId: instance.id,
-          minecraftVersion: instance.minecraft_version
-        });
-
-        cleanupListeners();
-      } catch (error) {
-        void logger.error('Error downloading assets', error, 'launchInstance');
-        await hideProgressBar();
-        addToast(i18n.t('assetsDownloadFailed', { ns: 'instance' }), 'error');
-        throw error;
-      } finally {
-        cleanupListeners();
-      }
-    }
-
     let accessToken = currentAccount?.user.access_token || '';
     if (currentAccount?.user.username) {
       try {
@@ -274,15 +225,22 @@ const launchInstance = async (
 
     const [minRam, maxRam] = await invoke<[number, number]>('load_ram_config');
     
-    await invoke<string>('launch_minecraft_with_java', {
-      appHandle: undefined,
+    setIsDownloadingAssets?.(true);
+    setDownloadProgress?.(null);
+    void showIndeterminateProgressBar();
+    await prepareAndLaunch({
       instanceId: instance.id,
       javaPath: javaPath,
       minecraftVersion: instance.minecraft_version,
-      javaVersion: javaVersion,
       accessToken: accessToken,
       minRamGb: minRam,
       maxRamGb: maxRam
+    }, payload => setDownloadProgress?.(payload), () => {
+      setDownloadProgress?.({ current: 100, total: 100, percentage: 100, current_file: '', status: 'Completed' });
+      void sendNotificationSafe({
+        title: i18n.t('instanceReady.title', { ns: 'notifications' }),
+        body: i18n.t('instanceReady.body', { ns: 'notifications', name: instance.name }),
+      }).catch(() => {});
     });
 
     if (setIsDownloadingAssets) setIsDownloadingAssets(false);
@@ -318,6 +276,9 @@ const launchInstance = async (
 
     addToast(i18n.t('launchFailed', { ns: 'instance', name: instance.name }), 'error');
     throw error;
+  } finally {
+    await hideProgressBar().catch(() => {});
+    setIsDownloadingAssets?.(false);
   }
 };
 
@@ -1159,7 +1120,7 @@ function App() {
                      instanceId={selectedInstance}
                      distribution={distribution}
                      isJavaInstalling={showLoader || isDownloadingAssets}
-                     onLaunch={async (instance) => {
+                     onLaunch={async (instance: any) => {
                        if (isDownloadingAssets) {
                          setLoaderText(t('instance:downloadingAssets'));
                        } else {
