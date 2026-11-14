@@ -78,6 +78,10 @@ jobs:
       - name: Check translations
         run: node scripts/check-i18n.mjs
 
+      - name: Test Rust
+        if: matrix.args != '--target x86_64-apple-darwin'
+        run: cargo test --manifest-path src-tauri/Cargo.toml --lib --jobs 2
+
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v1
         env:
