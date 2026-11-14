@@ -311,7 +311,7 @@ export const SkinManager: React.FC<SkinManagerProps> = ({ currentUser, addToast 
     const initializeSkins = async () => {
       try {
         const savedSkins = await SkinStorageService.getStoredSkins();
-        const activeSkin = await SkinStorageService.getActiveSkin();
+        const activeSkin = await SkinStorageService.getActiveSkin(savedSkins);
 
         savedSkins.forEach(skin => {
           if (skin.fileData && skin.fileData instanceof ArrayBuffer && skin.fileData.byteLength > 0) {

@@ -44,34 +44,16 @@ export class SkinStorageService {
       const metadata = await this.getSkinsMetadata();
       const skinFiles = await invoke<string[]>('list_skin_files');
 
-      return await Promise.all(metadata.map(async (meta) => {
-        let fileData: ArrayBuffer | undefined = undefined;
-
-        if (skinFiles.includes(meta.id)) {
-          try {
-            const fileDataArray = await invoke<number[]>('load_skin_file', { skinId: meta.id });
-            const uint8Array = new Uint8Array(fileDataArray);
-            const buffer = new ArrayBuffer(uint8Array.length);
-            const view = new Uint8Array(buffer);
-            view.set(uint8Array);
-            fileData = buffer;
-          } catch (err) {
-            void logger.error(`Error loading fileData for skin ${meta.id}`, err, 'SkinStorageService');
-          }
+      const files = new Set(skinFiles);
+      const skins: SkinData[] = new Array(metadata.length);
+      let next = 0;
+      await Promise.all(Array.from({ length: Math.min(8, metadata.length) }, async () => {
+        while (next < metadata.length) {
+          const index = next++;
+          skins[index] = await this.readSkin(metadata[index], files);
         }
-
-        return {
-          id: meta.id,
-          name: meta.name || '',
-          url: meta.url || '',
-          textureId: meta.textureId || '',
-          variant: meta.variant || 'classic',
-          uploadedAt: new Date(meta.uploadedAt),
-          isActive: meta.isActive || false,
-          isMojangSynced: meta.isMojangSynced || false,
-          fileData
-        };
       }));
+      return skins;
     } catch (error) {
       void logger.error('Error loading skins', error, 'SkinStorageService');
       return [];
@@ -118,17 +100,43 @@ export class SkinStorageService {
     }
   }
 
-  static async getActiveSkin(): Promise<SkinData | null> {
+  static async getActiveSkin(loadedSkins?: readonly SkinData[]): Promise<SkinData | null> {
     try {
       const activeSkinId = localStorage.getItem(ACTIVE_SKIN_KEY);
       if (!activeSkinId) return null;
+      if (loadedSkins) return loadedSkins.find(s => s.id === activeSkinId) || null;
 
-      const skins = await this.getStoredSkins();
-      return skins.find(s => s.id === activeSkinId) || null;
+      const metadata = (await this.getSkinsMetadata()).find(meta => meta.id === activeSkinId);
+      if (!metadata) return null;
+      const files = new Set(await invoke<string[]>('list_skin_files'));
+      return await this.readSkin(metadata, files);
     } catch (error) {
       void logger.error('Error getting active skin', error, 'SkinStorageService');
       return null;
     }
+  }
+
+  private static async readSkin(meta: any, files: ReadonlySet<string>): Promise<SkinData> {
+    let fileData: ArrayBuffer | undefined;
+    if (files.has(meta.id)) {
+      try {
+        const bytes = await invoke<number[]>('load_skin_file', { skinId: meta.id });
+        fileData = new Uint8Array(bytes).buffer;
+      } catch (error) {
+        void logger.error(`Error loading fileData for skin ${meta.id}`, error, 'SkinStorageService');
+      }
+    }
+    return {
+      id: meta.id,
+      name: meta.name || '',
+      url: meta.url || '',
+      textureId: meta.textureId || '',
+      variant: meta.variant || 'classic',
+      uploadedAt: new Date(meta.uploadedAt),
+      isActive: meta.isActive || false,
+      isMojangSynced: meta.isMojangSynced || false,
+      fileData,
+    };
   }
 
   // --- Cape metadata (capes themselves live server-side on Mojang; we only cache the
