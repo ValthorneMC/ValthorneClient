@@ -23,7 +23,6 @@ target/
 *.sln
 *.sw?
 .vscode/
-src-tauri/Cargo.lock
 /.claude
 
 # Signing keys and local previews

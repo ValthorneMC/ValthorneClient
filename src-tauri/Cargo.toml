@@ -22,11 +22,11 @@ strip = true
 panic = "abort"
 
 [build-dependencies]
-tauri-build = { version = "2.6", features = [] }
+tauri-build = { version = "~2.7.4", features = [] }
 
 [dependencies]
-tauri = { version = "2.11", features = ["protocol-asset", "macos-private-api"] }
-tauri-plugin-opener = "2.5"
+tauri = { version = "~2.12.5", features = ["protocol-asset", "macos-private-api"] }
+tauri-plugin-opener = "~2.7.3"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 anyhow = "1.0"
@@ -50,9 +50,9 @@ chrono = { version = "0.4", features = ["serde"] }
 dotenv = "0.15"
 log = { version = "0.4", features = ["std"] }
 tauri-plugin-sql = { version = "2.0.0", features = ["sqlite"] }
-tauri-plugin-notification = "2.0"
-tauri-plugin-global-shortcut = "2.0"
-tauri-plugin-os = "2.0"
+tauri-plugin-notification = "~2.8.1"
+tauri-plugin-global-shortcut = "~2.4.1"
+tauri-plugin-os = "~2.4.0"
 sqlx = { version = "0.8", default-features = false, features = ["sqlite", "runtime-tokio", "macros"] }
 rand = "0.10"
 glob = "0.3"
