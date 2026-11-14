@@ -25,5 +25,7 @@
   "discordPresence": {
     "inClient": "In the client",
     "joinButton": "Join the Discord"
-  }
+  },
+  "viewLoadFailed": "This view could not be loaded.",
+  "retry": "Retry"
 }

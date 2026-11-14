@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useSyncExternalStore } from "react";
-import type { Dispatch, SetStateAction } from "react";
+import type { ComponentProps, Dispatch, SetStateAction } from "react";
 import { useTranslation } from "react-i18next";
 import { CircleCheck, RefreshCw, TriangleAlert } from "lucide-react";
 import { Modal } from "@/components/ui/Modal";
@@ -15,9 +15,7 @@ import { Toaster, toast } from "vibe-toast";
 import { addAppToast } from "@/utils/appToast";
 import Sidebar from "@/components/Sidebar";
 import UserProfile from "@/components/UserProfile";
-import SettingsView from "@/components/SettingsView";
-import InstanceView from "@/components/InstanceView";
-import { SkinManager } from "@/components/skin/SkinManager";
+import { deferredView } from "@/components/DeferredView";
 
 import HomeScreen from "@/components/HomeScreen";
 
@@ -30,6 +28,10 @@ import valthorneLogoFullText from "@/assets/logo_full_text.svg";
 import microsoftIcon from "@/assets/icons/microsoft.svg";
 import { logger } from "@/utils/logger";
 import { i18n, translateBackendError } from "@/i18n";
+
+const SettingsView = deferredView(() => import('@/components/SettingsView'));
+const InstanceView = deferredView(() => import('@/components/InstanceView'));
+const SkinManager = deferredView<ComponentProps<typeof import('@/components/skin/SkinManager').SkinManager>>(() => import('@/components/skin/SkinManager').then(module => ({ default: module.SkinManager })));
 
 // Function to update Discord presence
 const updateDiscordPresence = async (state: string, details: string) => {
