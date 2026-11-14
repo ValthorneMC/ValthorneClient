@@ -100,12 +100,14 @@ function getVisibleMeshBox(root: Object3D): Box3 | null {
 }
 
 export function useSkinPreviewScene({
+  enabled = true,
   selectedModelSrc,
   textureSrc,
   capeSrc,
   initializeAnimations,
   cleanupAnimationState,
 }: {
+  enabled?: boolean;
   selectedModelSrc: string;
   textureSrc: string;
   capeSrc: string | undefined;
@@ -126,6 +128,7 @@ export function useSkinPreviewScene({
   callbacks.current = { initializeAnimations, cleanupAnimationState };
 
   useEffect(() => {
+    if (!enabled) return;
     let cancelled = false;
     const transparent = createTransparentTexture();
     transparentTextureRef.current = transparent;
@@ -158,9 +161,10 @@ export function useSkinPreviewScene({
       transparent.dispose();
       transparentTextureRef.current = null;
     };
-  }, [selectedModelSrc]);
+  }, [enabled, selectedModelSrc]);
 
   useEffect(() => {
+    if (!enabled) return;
     let cancelled = false;
     const lease = textureSrc ? acquireTexture(textureSrc) : null;
     setIsTextureLoaded(false);
@@ -180,9 +184,10 @@ export function useSkinPreviewScene({
       }
       lease?.release();
     };
-  }, [textureSrc]);
+  }, [enabled, textureSrc]);
 
   useEffect(() => {
+    if (!enabled) return;
     let cancelled = false;
     const lease = capeSrc ? acquireTexture(capeSrc) : null;
     void (lease?.texture ?? Promise.resolve(null)).then(texture => {
@@ -198,7 +203,7 @@ export function useSkinPreviewScene({
       if (sceneRef.current) applyCapeTexture(sceneRef.current, null, transparentTextureRef.current ?? undefined);
       lease?.release();
     };
-  }, [capeSrc]);
+  }, [enabled, capeSrc]);
 
   return { isModelLoaded, isTextureLoaded, modelCenter, modelSize, scene };
 }

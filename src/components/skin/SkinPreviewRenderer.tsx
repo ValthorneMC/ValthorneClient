@@ -90,26 +90,23 @@ export const SkinPreviewRenderer: React.FC<SkinPreviewRendererProps> = ({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [containerElement, setContainerElement] = useState<HTMLElement | null>(null);
 
-  // Grids can mount dozens of these at once (e.g. the skin library). Defer creating the
-  // WebGL context until the preview actually scrolls into view, and keep tracking
-  // visibility afterwards so the render loop can pause while scrolled out instead of
-  // burning GPU/CPU on off-screen thumbnails.
-  const [shouldMount, setShouldMount] = useState(false);
-  const isVisibleRef = useRef(false);
+  const [active, setActive] = useState(false);
 
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
-
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        isVisibleRef.current = entry.isIntersecting;
-        if (entry.isIntersecting) setShouldMount(true);
-      },
-      { rootMargin: '150px' },
-    );
+    let intersecting = false;
+    const update = () => setActive(intersecting && !document.hidden);
+    const observer = new IntersectionObserver(([entry]) => {
+      intersecting = entry.isIntersecting;
+      update();
+    }, { rootMargin: '150px' });
     observer.observe(container);
-    return () => observer.disconnect();
+    document.addEventListener('visibilitychange', update);
+    return () => {
+      observer.disconnect();
+      document.removeEventListener('visibilitychange', update);
+    };
   }, []);
 
   const rendererRef = useRef<WebGLRenderer | null>(null);
@@ -139,6 +136,7 @@ export const SkinPreviewRenderer: React.FC<SkinPreviewRendererProps> = ({
     });
 
   const { isModelLoaded, isTextureLoaded, modelCenter, modelSize, scene } = useSkinPreviewScene({
+    enabled: active,
     selectedModelSrc,
     textureSrc,
     capeSrc,
@@ -174,10 +172,11 @@ export const SkinPreviewRenderer: React.FC<SkinPreviewRendererProps> = ({
 
   const radialSpotlightShader = useMemo(() => createRadialSpotlightShader(), []);
 
-  // Set up the Three.js renderer/scene/camera/lights/spotlight once the preview has
-  // scrolled into view at least once (see the IntersectionObserver effect above).
+  const baseTransformRef = useRef({ position: modelGroupPosition, scale: modelGroupScale, offset: modelOffset });
+  baseTransformRef.current = { position: modelGroupPosition, scale: modelGroupScale, offset: modelOffset };
+
   useEffect(() => {
-    if (!shouldMount || !canvasRef.current) return;
+    if (!active || !canvasRef.current) return;
 
     const renderer = new WebGLRenderer({
       canvas: canvasRef.current,
@@ -221,16 +220,16 @@ export const SkinPreviewRenderer: React.FC<SkinPreviewRendererProps> = ({
     const renderLoop = () => {
       if (disposed) return;
       rafId = requestAnimationFrame(renderLoop);
-      if (!isVisibleRef.current) return;
-
-      const delta = clock.getDelta();
+      const delta = Math.min(clock.getDelta(), 0.1);
       updateAnimation(delta);
 
       const impulse = impulseRef.current;
 
-      if (outerGroup && innerGroup) {
-        outerGroup.rotation.set(0, modelRotationRef.current, impulse.clickImpulseRotationZ);
-      }
+      const { position, scale, offset } = baseTransformRef.current;
+      outerGroup.rotation.set(0, modelRotationRef.current, impulse.clickImpulseRotationZ);
+      outerGroup.position.set(position[0] + impulse.clickImpulseOffsetX, position[1], position[2]);
+      outerGroup.scale.set(scale[0] * impulse.clickImpulseScaleX, scale[1] * impulse.clickImpulseScaleY, scale[2]);
+      innerGroup.position.set(...offset);
 
       if (rendererRef.current && cameraRef.current) {
         const canvas = rendererRef.current.domElement;
@@ -256,6 +255,8 @@ export const SkinPreviewRenderer: React.FC<SkinPreviewRendererProps> = ({
       spotlightGeometry.dispose();
       spotlightMaterial.dispose();
       renderer.dispose();
+      renderer.forceContextLoss();
+      currentModelChildRef.current = null;
       rendererRef.current = null;
       threeSceneRef.current = null;
       cameraRef.current = null;
@@ -264,41 +265,7 @@ export const SkinPreviewRenderer: React.FC<SkinPreviewRendererProps> = ({
       spotlightMeshRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shouldMount]);
-
-  // Track the model group's position/scale/offset, applying click-impulse offsets each frame
-  // via a small ref-driven wrapper effect (position/scale change infrequently; impulse changes
-  // every frame, so we store the base values and let the render loop above add the impulse).
-  const baseTransformRef = useRef({
-    position: modelGroupPosition,
-    scale: modelGroupScale,
-    offset: modelOffset,
-  });
-  baseTransformRef.current = { position: modelGroupPosition, scale: modelGroupScale, offset: modelOffset };
-
-  useEffect(() => {
-    let rafId = 0;
-    const applyTransform = () => {
-      rafId = requestAnimationFrame(applyTransform);
-      const outer = modelGroupOuterRef.current;
-      const inner = modelGroupInnerRef.current;
-      if (!outer || !inner) return;
-
-      const { position, scale, offset } = baseTransformRef.current;
-      const impulse = impulseRef.current;
-
-      outer.position.set(
-        position[0] + impulse.clickImpulseOffsetX,
-        position[1],
-        position[2],
-      );
-      outer.scale.set(scale[0] * impulse.clickImpulseScaleX, scale[1] * impulse.clickImpulseScaleY, scale[2]);
-      inner.position.set(offset[0], offset[1], offset[2]);
-    };
-    rafId = requestAnimationFrame(applyTransform);
-    return () => cancelAnimationFrame(rafId);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [active]);
 
   // Swap the loaded skin model into the inner group whenever `scene` changes.
   useEffect(() => {
@@ -314,9 +281,9 @@ export const SkinPreviewRenderer: React.FC<SkinPreviewRendererProps> = ({
       inner.add(scene);
       currentModelChildRef.current = scene;
     }
-    // Also re-run once the renderer/groups exist (`shouldMount`): the model can finish
+    // Also re-run once the renderer/groups exist (`active`): the model can finish
     // loading before the lazy-mounted WebGL setup effect has populated `modelGroupInnerRef`.
-  }, [scene, shouldMount]);
+  }, [scene, active]);
 
   // Apply camera fov/position/lookAt whenever the computed fit changes.
   useEffect(() => {
@@ -327,8 +294,8 @@ export const SkinPreviewRenderer: React.FC<SkinPreviewRendererProps> = ({
     camera.position.set(...cameraConfig.position);
     camera.lookAt(...cameraConfig.target);
     camera.updateProjectionMatrix();
-    // Also re-run once the camera exists (`shouldMount`, see note on the scene-attach effect).
-  }, [cameraConfig, shouldMount]);
+    // Also re-run once the camera exists (`active`, see note on the scene-attach effect).
+  }, [cameraConfig, active]);
 
   // Apply spotlight position/scale whenever fit changes.
   useEffect(() => {
@@ -337,8 +304,8 @@ export const SkinPreviewRenderer: React.FC<SkinPreviewRendererProps> = ({
 
     mesh.position.set(...spotlightPosition);
     mesh.scale.set(...spotlightScale);
-    // Also re-run once the spotlight mesh exists (`shouldMount`, see note above).
-  }, [spotlightPosition, spotlightScale, shouldMount]);
+    // Also re-run once the spotlight mesh exists (`active`, see note above).
+  }, [spotlightPosition, spotlightScale, active]);
 
   // Keep the container element ref for the fit hook's ResizeObserver.
   useEffect(() => {
@@ -351,6 +318,7 @@ export const SkinPreviewRenderer: React.FC<SkinPreviewRendererProps> = ({
       className={`relative w-full h-full overflow-hidden cursor-grab active:cursor-grabbing ${className}`}
     >
       <canvas
+        key={active ? 'visible' : 'hidden'}
         ref={canvasRef}
         className={`w-full h-full block transition-opacity duration-500 ${
           isPreviewVisible ? 'opacity-100' : 'opacity-0'
@@ -363,7 +331,7 @@ export const SkinPreviewRenderer: React.FC<SkinPreviewRendererProps> = ({
         onClick={interactive ? onCanvasClick : undefined}
       />
 
-      {showLoading && (
+      {active && showLoading && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white" />
         </div>

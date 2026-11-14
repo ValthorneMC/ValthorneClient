@@ -13,8 +13,8 @@ function model() { const scene = new Group(); scene.add(new Mesh(new BoxGeometry
 let root: ReturnType<typeof createRoot>;
 let state: ReturnType<typeof useSkinPreviewScene>;
 const initializeAnimations = vi.fn(), cleanupAnimationState = vi.fn();
-function Probe({ texture = 'skin', model: source = 'model' }: { texture?: string; model?: string }) {
-  state = useSkinPreviewScene({ textureSrc: texture, selectedModelSrc: source, capeSrc: undefined, initializeAnimations, cleanupAnimationState }); return null;
+function Probe({ texture = 'skin', model: source = 'model', enabled = true }: { texture?: string; model?: string; enabled?: boolean }) {
+  state = useSkinPreviewScene({ enabled, textureSrc: texture, selectedModelSrc: source, capeSrc: undefined, initializeAnimations, cleanupAnimationState }); return null;
 }
 beforeEach(() => { vi.clearAllMocks(); root = createRoot(document.createElement('div')); });
 afterEach(async () => { await act(async () => root.unmount()); });
@@ -47,4 +47,18 @@ test('StrictMode replay does not initialize disposed scenes or retain texture co
   expect(initializeAnimations).toHaveBeenCalledTimes(1);
   await act(async () => root.unmount());
   expect(releases[1]).toHaveBeenCalledTimes(1);
+});
+
+test('defers every resource load until enabled and releases consumers when hidden', async () => {
+  const pending = deferred<any>(), texture = deferred<Texture>(), release = vi.fn();
+  vi.mocked(resources.loadModel).mockReturnValue(pending.promise);
+  vi.mocked(resources.acquireTexture).mockReturnValue({ texture: texture.promise, release });
+  await act(async () => root.render(<Probe enabled={false} />));
+  expect(resources.loadModel).not.toHaveBeenCalled(); expect(resources.acquireTexture).not.toHaveBeenCalled();
+  await act(async () => root.render(<Probe enabled />));
+  expect(resources.acquireTexture).toHaveBeenCalledTimes(1);
+  await act(async () => root.render(<Probe enabled={false} />));
+  expect(release).toHaveBeenCalledTimes(1);
+  await act(async () => { pending.resolve(model()); texture.resolve(new Texture()); });
+  expect(initializeAnimations).not.toHaveBeenCalled(); expect(state!.scene).toBeNull();
 });
