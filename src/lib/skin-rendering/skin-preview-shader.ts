@@ -101,18 +101,20 @@ function syncDamageFlashMaterial(material: MeshStandardMaterial, intensity: numb
   }
 }
 
-export function syncDamageFlashShader(scene: Object3D | null, intensity: number) {
-  if (!scene) return;
-
-  scene.traverse((object) => {
+export function createDamageFlashUpdater(scene: Object3D | null) {
+  const materials = new Set<MeshStandardMaterial>();
+  scene?.traverse(object => {
     const mesh = object as Mesh;
     if (!mesh.isMesh || !mesh.material) return;
-
-    const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-    materials.forEach((material) => {
-      if (!(material instanceof MeshStandardMaterial) || material.name === 'cape') return;
-
-      syncDamageFlashMaterial(material, intensity);
-    });
+    for (const material of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) {
+      if (material instanceof MeshStandardMaterial && material.name !== 'cape') materials.add(material);
+    }
   });
+  materials.forEach(material => installDamageFlashShader(material, 0));
+  let last: number | undefined;
+  return (intensity: number) => {
+    if (intensity === 0 && last === 0) return;
+    last = intensity;
+    materials.forEach(material => syncDamageFlashMaterial(material, intensity));
+  };
 }

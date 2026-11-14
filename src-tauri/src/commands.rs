@@ -1,5 +1,4 @@
 use tokio::fs;
-use std::fs::File;
 use std::io::Write;
 use reqwest;
 use tauri::{AppHandle, State};
@@ -63,109 +62,12 @@ pub async fn download_java(version: String, app_handle: AppHandle, state: State<
 }
 
 async fn download_java_inner(version: String, app_handle: AppHandle) -> Result<String, String> {
-    // Notify that the download started
     let _ = app_handle.emit("java-download-started", serde_json::json!({ "version": version }));
-    
-    let runtime_dir = crate::utils::runtime_dir();
-    let java_dir = crate::utils::java_runtime_dir(&version);
-    fs::create_dir_all(&runtime_dir).await.map_err(|e| format!("Failed to create runtime directory: {}", e))?;
-    let (os, arch) = crate::utils::adoptium_os_and_arch();
-    let extension = crate::utils::adoptium_archive_extension();
-    let jre_url = format!("https://api.adoptium.net/v3/binary/latest/{}/ga/{}/{}/jdk/hotspot/normal/eclipse", version, os, arch);
-    
-    // Emit initial progress
-    let _ = app_handle.emit("java-download-progress", serde_json::json!({
-        "percentage": 0,
-        "status": "Downloading Java"
-    }));
-    
-    let client = reqwest::Client::new();
-    let response = client.get(&jre_url).header("User-Agent", "ValthorneClient/1.0").header("Accept", "application/octet-stream").send().await.map_err(|e| format!("Failed to download Java: {}", e))?;
-    if !response.status().is_success() { return Err(format!("Download failed with status: {}", response.status())); }
-    
-    // Get total size if available
-    let total_size = response.content_length().unwrap_or(0);
-    let mut downloaded = 0u64;
-
-    // Emit progress during download
-    let _ = app_handle.emit("java-download-progress", serde_json::json!({
-        "percentage": 10,
-        "status": "Downloading Java"
-    }));
-    
-    let temp_file = runtime_dir.join(format!("java-{}.{}", version, extension));
-    let mut file = File::create(&temp_file).map_err(|e| format!("Failed to create temp file: {}", e))?;
-
-    // Write each chunk to disk as it arrives instead of buffering the whole JDK archive
-    // (150-200 MB) in memory before writing it out.
-    let mut stream = response.bytes_stream();
-    use futures_util::TryStreamExt;
-    loop {
-        match stream.try_next().await {
-            Ok(Some(chunk)) => {
-                downloaded += chunk.len() as u64;
-                file.write_all(&chunk).map_err(|e| format!("Failed to write temp file: {}", e))?;
-
-                // Update progress every 5%
-                if total_size > 0 {
-                    let percentage = ((downloaded * 100) / total_size).min(80);
-                    let _ = app_handle.emit("java-download-progress", serde_json::json!({
-                        "percentage": percentage,
-                        "status": "Downloading Java"
-                    }));
-                }
-            }
-            Ok(None) => break,
-            Err(e) => return Err(format!("Failed to read chunk: {}", e)),
-        }
-    }
-
-    file.flush().map_err(|e| format!("Failed to flush file: {}", e))?;
-    drop(file);
-    
-    // Emit extraction progress
-    let _ = app_handle.emit("java-download-progress", serde_json::json!({
-        "percentage": 85,
-        "status": "Extracting Java"
-    }));
-    
-    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-    if java_dir.exists() { let _ = std::fs::remove_dir_all(&java_dir); }
-
-    let staging_dir = crate::utils::java_staging_dir(&runtime_dir, &version);
-    let _ = std::fs::remove_dir_all(&staging_dir);
-    {
-        let app_handle = app_handle.clone();
-        crate::utils::extract_java_archive(&temp_file, &staging_dir, move |done, total| {
-            // tar.gz reports total = 0 (unknown up front); keep the bar moving anyway
-            let extraction_progress = if total > 0 {
-                85 + ((done * 10) / total)
-            } else {
-                (85 + done / 200).min(94)
-            };
-            let _ = app_handle.emit("java-download-progress", serde_json::json!({
-                "percentage": extraction_progress,
-                "status": "Extracting Java"
-            }));
-        })?;
-    }
-
-    // Emit final progress
-    let _ = app_handle.emit("java-download-progress", serde_json::json!({
-        "percentage": 95,
-        "status": "Finalizing installation"
-    }));
-
-    crate::utils::finalize_extracted_java(&staging_dir, &java_dir)?;
-    let _ = std::fs::remove_file(&temp_file);
-    
-    // Emit completed progress
-    let _ = app_handle.emit("java-download-progress", serde_json::json!({
-        "percentage": 100,
-        "status": "Completed"
-    }));
+    let events = app_handle.clone();
+    crate::java_install::install(&version, Arc::new(move |percentage, status| {
+        let _ = events.emit("java-download-progress", serde_json::json!({ "percentage": percentage, "status": status }));
+    })).await?;
     let _ = app_handle.emit("java-download-completed", serde_json::json!({ "version": version }));
-
     Ok(format!("Java {} downloaded and installed successfully", version))
 }
 
@@ -339,6 +241,11 @@ use std::fs::File;
 
 fn get_skins_directory() -> std::path::PathBuf {
     crate::utils::valthorne_dir().join("skins")
+}
+
+#[tauri::command]
+pub fn get_skins_directory_path() -> String {
+    get_skins_directory().to_string_lossy().to_string()
 }
 
 #[tauri::command]
@@ -844,7 +751,7 @@ pub async fn download_instance_assets(
         *downloading = true;
     }
 
-    let result = download_instance_assets_inner(instance_id, minecraft_version, app_handle).await;
+    let result = prepare_instance_assets(instance_id, minecraft_version, app_handle).await.map(|_| "ok".to_string());
 
     if let Ok(mut downloading) = state.lock() {
         *downloading = false;
@@ -863,28 +770,32 @@ fn emit_stage(app_handle: &AppHandle, percentage: u32, status: &str) {
     }));
 }
 
-async fn download_instance_assets_inner(
+pub(crate) async fn prepare_instance_assets(
     instance_id: String,
     minecraft_version: String,
     app_handle: AppHandle,
-) -> Result<String, String> {
+) -> Result<crate::launch_preparation::PreparedAssets, String> {
     let instance_dir = crate::utils::valthorne_dir().join(&instance_id);
     let _ = tokio::fs::create_dir_all(instance_dir.join("libraries")).await;
     let _ = tokio::fs::create_dir_all(instance_dir.join("mods")).await;
     emit_stage(&app_handle, 0, "Starting");
-    emit_stage(&app_handle, 1, "Version");
-    crate::instances::ensure_minecraft_client_present(&instance_dir, &minecraft_version).await?;
-
     let manifest = crate::dist::fetch_manifest().await?;
+    if manifest.minecraft_version != minecraft_version {
+        return Err("Distribution version changed; reload the launcher before launching".to_string());
+    }
+    emit_stage(&app_handle, 1, "Instance");
+    crate::dist::sync_instance(&app_handle, &instance_dir, &manifest, (1.0, 10.0)).await?;
+    emit_stage(&app_handle, 10, "Version");
+    crate::instances::ensure_minecraft_client_present(&instance_dir, &minecraft_version).await?;
 
     let mut installed_mod_loader_version_id: Option<String> = None;
     if let Some(mod_loader) = manifest.mod_loader.as_ref() {
-        emit_stage(&app_handle, 3, "ModLoader");
+        emit_stage(&app_handle, 12, "ModLoader");
         installed_mod_loader_version_id = crate::instances::install_mod_loader(&minecraft_version, mod_loader, &instance_dir).await?;
     }
 
-    emit_stage(&app_handle, 10, "Mojang");
-    let _ = crate::instances::ensure_assets_present(&app_handle, &instance_dir, &minecraft_version, (10.0, 85.0)).await?;
+    emit_stage(&app_handle, 20, "Mojang");
+    let asset_index_id = crate::instances::ensure_assets_present(&app_handle, &instance_dir, &minecraft_version, (20.0, 85.0)).await?;
 
     emit_stage(&app_handle, 85, "Libraries");
     crate::instances::ensure_version_libraries(&instance_dir, &minecraft_version).await?;
@@ -892,13 +803,10 @@ async fn download_instance_assets_inner(
         crate::instances::ensure_mod_loader_libraries(&instance_dir, version_id).await?;
     }
 
-    emit_stage(&app_handle, 90, "Instance");
-    crate::dist::sync_instance(&app_handle, &instance_dir, &manifest).await?;
-
     emit_stage(&app_handle, 100, "Completed");
     let _ = app_handle.emit("asset-download-completed", serde_json::json!({ "phase": "complete" }));
 
-    Ok("ok".to_string())
+    Ok(crate::launch_preparation::PreparedAssets { asset_index_id })
 }
 
 #[tauri::command]

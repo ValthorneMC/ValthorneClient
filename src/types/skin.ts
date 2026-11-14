@@ -4,6 +4,7 @@ export interface SkinData {
   name: string;
   file?: File;
   fileData?: ArrayBuffer;
+  previewUrl?: string;
   url: string;
   textureId: string;
   variant: 'classic' | 'slim';

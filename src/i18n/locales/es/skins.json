@@ -42,5 +42,7 @@
     "capeRemoveFailed": "Error al quitar la capa",
     "updated": "Skin actualizada",
     "saveChangesFailed": "Error al guardar los cambios"
-  }
+  },
+  "previewUnavailable": "No se pudo cargar la previsualización.",
+  "retryPreview": "Reintentar"
 }

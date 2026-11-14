@@ -2,6 +2,7 @@ import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, expect, test, vi } from 'vitest';
 vi.mock('@/services/skin/skinStorage', () => ({ SkinStorageService: { getStoredSkins: vi.fn(), getActiveSkin: vi.fn(async () => null), getLocalActiveCapeId: vi.fn(() => null) } }));
+vi.mock('@/components/skin/VirtualSkinGrid', () => ({VirtualSkinGrid: ({children}:{children:any}) => children}));
 vi.mock('@/components/skin/SkinPreviewRenderer', () => ({ SkinPreviewRenderer: () => null }));
 vi.mock('@/utils/logger', () => ({ logger: { error: vi.fn() } }));
 vi.mock('@/i18n', () => ({ translateBackendError: () => '' }));
@@ -21,13 +22,13 @@ test('does not start polling when initial storage reads finish after unmount', a
   await act(async () => complete([]));
   expect(interval).not.toHaveBeenCalled();
 });
-test('does not start polling when unmounted during the initial display delay', async () => {
+test('clears the active poll when leaving an initialized library', async () => {
   vi.useFakeTimers();
   vi.mocked(SkinStorageService.getStoredSkins).mockResolvedValue([]);
-  const interval = vi.spyOn(globalThis, 'setInterval');
+  const interval = vi.spyOn(globalThis, 'setInterval'), clear = vi.spyOn(globalThis, 'clearInterval');
   const root = createRoot(document.createElement('div'));
   await act(async () => root.render(<SkinManager currentUser={null} />));
+  expect(interval).toHaveBeenCalledTimes(1);
   await act(async () => root.unmount());
-  await act(async () => vi.runAllTimersAsync());
-  expect(interval).not.toHaveBeenCalled();
+  expect(clear).toHaveBeenCalledWith(interval.mock.results[0].value);
 });

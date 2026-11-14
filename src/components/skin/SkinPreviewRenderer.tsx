@@ -21,8 +21,8 @@ import {
   DirectionalLight,
   CircleGeometry,
   ShaderMaterial,
-  Clock,
 } from 'three';
+import { startPreviewLoop } from '@/lib/skin-rendering/preview-loop';
 import type { Object3D } from 'three';
 
 import {
@@ -33,7 +33,7 @@ import {
   useSkinPreviewScene,
 } from '@/hooks/skin-rendering';
 import { ClassicPlayerModel, SlimPlayerModel } from '@/lib/skin-rendering/models';
-import { createRadialSpotlightShader, syncDamageFlashShader } from '@/lib/skin-rendering/skin-preview-shader';
+import { createRadialSpotlightShader, createDamageFlashUpdater } from '@/lib/skin-rendering/skin-preview-shader';
 import type {
   SkinPreviewAnimationConfig,
   SkinPreviewFitPadding,
@@ -90,6 +90,8 @@ export const SkinPreviewRenderer: React.FC<SkinPreviewRendererProps> = ({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [containerElement, setContainerElement] = useState<HTMLElement | null>(null);
 
+  const interactionUntil = useRef(0);
+  const damageFlash = useRef<(value: number) => void>(() => {});
   const [active, setActive] = useState(false);
 
   useEffect(() => {
@@ -135,7 +137,7 @@ export const SkinPreviewRenderer: React.FC<SkinPreviewRendererProps> = ({
       },
     });
 
-  const { isModelLoaded, isTextureLoaded, modelCenter, modelSize, scene } = useSkinPreviewScene({
+  const { isModelLoaded, isTextureLoaded, modelCenter, modelSize, scene, error, retry } = useSkinPreviewScene({
     enabled: active,
     selectedModelSrc,
     textureSrc,
@@ -168,7 +170,8 @@ export const SkinPreviewRenderer: React.FC<SkinPreviewRendererProps> = ({
   });
 
   const isReady = isModelLoaded && isTextureLoaded && hasResolvedFit;
-  const { isPreviewVisible, showLoading } = useSkinPreviewLoading(isReady);
+  const renderable = active && isReady && !error;
+  const { isPreviewVisible, showLoading } = useSkinPreviewLoading(isReady || !!error);
 
   const radialSpotlightShader = useMemo(() => createRadialSpotlightShader(), []);
 
@@ -176,12 +179,13 @@ export const SkinPreviewRenderer: React.FC<SkinPreviewRendererProps> = ({
   baseTransformRef.current = { position: modelGroupPosition, scale: modelGroupScale, offset: modelOffset };
 
   useEffect(() => {
-    if (!active || !canvasRef.current) return;
+    if (!renderable || !canvasRef.current) return;
 
     const renderer = new WebGLRenderer({
       canvas: canvasRef.current,
       alpha: true,
-      antialias: true,
+      antialias: false,
+      powerPreference: 'low-power',
     });
     renderer.outputColorSpace = SRGBColorSpace;
     renderer.toneMapping = NoToneMapping;
@@ -213,14 +217,7 @@ export const SkinPreviewRenderer: React.FC<SkinPreviewRendererProps> = ({
     scene3.add(spotlightMesh);
     spotlightMeshRef.current = spotlightMesh;
 
-    let disposed = false;
-    let rafId = 0;
-    const clock = new Clock();
-
-    const renderLoop = () => {
-      if (disposed) return;
-      rafId = requestAnimationFrame(renderLoop);
-      const delta = Math.min(clock.getDelta(), 0.1);
+    const stopLoop = startPreviewLoop(delta => {
       updateAnimation(delta);
 
       const impulse = impulseRef.current;
@@ -241,17 +238,14 @@ export const SkinPreviewRenderer: React.FC<SkinPreviewRendererProps> = ({
           cameraRef.current.updateProjectionMatrix();
         }
 
-        syncDamageFlashShader(currentModelChildRef.current, impulse.damageFlashIntensity);
+        damageFlash.current(impulse.damageFlashIntensity);
 
         rendererRef.current.render(scene3, cameraRef.current);
       }
-    };
-
-    rafId = requestAnimationFrame(renderLoop);
+    }, () => performance.now() < interactionUntil.current);
 
     return () => {
-      disposed = true;
-      cancelAnimationFrame(rafId);
+      stopLoop();
       spotlightGeometry.dispose();
       spotlightMaterial.dispose();
       renderer.dispose();
@@ -265,7 +259,7 @@ export const SkinPreviewRenderer: React.FC<SkinPreviewRendererProps> = ({
       spotlightMeshRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active]);
+  }, [renderable]);
 
   // Swap the loaded skin model into the inner group whenever `scene` changes.
   useEffect(() => {
@@ -281,9 +275,10 @@ export const SkinPreviewRenderer: React.FC<SkinPreviewRendererProps> = ({
       inner.add(scene);
       currentModelChildRef.current = scene;
     }
-    // Also re-run once the renderer/groups exist (`active`): the model can finish
+    // Also re-run once the renderer/groups exist (`renderable`): the model can finish
     // loading before the lazy-mounted WebGL setup effect has populated `modelGroupInnerRef`.
-  }, [scene, active]);
+    damageFlash.current = createDamageFlashUpdater(scene);
+  }, [scene, renderable]);
 
   // Apply camera fov/position/lookAt whenever the computed fit changes.
   useEffect(() => {
@@ -294,8 +289,8 @@ export const SkinPreviewRenderer: React.FC<SkinPreviewRendererProps> = ({
     camera.position.set(...cameraConfig.position);
     camera.lookAt(...cameraConfig.target);
     camera.updateProjectionMatrix();
-    // Also re-run once the camera exists (`active`, see note on the scene-attach effect).
-  }, [cameraConfig, active]);
+    // Also re-run once the camera exists (`renderable`, see note on the scene-attach effect).
+  }, [cameraConfig, renderable]);
 
   // Apply spotlight position/scale whenever fit changes.
   useEffect(() => {
@@ -304,8 +299,8 @@ export const SkinPreviewRenderer: React.FC<SkinPreviewRendererProps> = ({
 
     mesh.position.set(...spotlightPosition);
     mesh.scale.set(...spotlightScale);
-    // Also re-run once the spotlight mesh exists (`active`, see note above).
-  }, [spotlightPosition, spotlightScale, active]);
+    // Also re-run once the spotlight mesh exists (`renderable`, see note above).
+  }, [spotlightPosition, spotlightScale, renderable]);
 
   // Keep the container element ref for the fit hook's ResizeObserver.
   useEffect(() => {
@@ -318,22 +313,29 @@ export const SkinPreviewRenderer: React.FC<SkinPreviewRendererProps> = ({
       className={`relative w-full h-full overflow-hidden cursor-grab active:cursor-grabbing ${className}`}
     >
       <canvas
-        key={active ? 'visible' : 'hidden'}
+        key={renderable ? 'ready' : 'idle'}
         ref={canvasRef}
         className={`w-full h-full block transition-opacity duration-500 ${
           isPreviewVisible ? 'opacity-100' : 'opacity-0'
         }`}
         style={{ imageRendering: 'pixelated' }}
-        onPointerDown={interactive ? onPointerDown : undefined}
-        onPointerMove={interactive ? onPointerMove : undefined}
+        onPointerDown={interactive ? event => { interactionUntil.current = performance.now() + 2000; onPointerDown(event); } : undefined}
+        onPointerMove={interactive ? event => { if (event.buttons) interactionUntil.current = performance.now() + 2000; onPointerMove(event); } : undefined}
         onPointerUp={interactive ? onPointerUp : undefined}
         onPointerLeave={interactive ? onPointerUp : undefined}
-        onClick={interactive ? onCanvasClick : undefined}
+        onClick={interactive ? () => { interactionUntil.current = performance.now() + 2000; onCanvasClick(); } : undefined}
       />
 
-      {active && showLoading && (
+      {active && !error && showLoading && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white" />
+        </div>
+      )}
+
+      {active && error && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-4 text-center text-sm text-white/70" role="alert">
+          <p>{t('previewUnavailable')}</p>
+          <button type="button" className="rounded-lg bg-white/10 px-3 py-2 text-white hover:bg-white/20" onClick={event => { event.stopPropagation(); retry(); }}>{t('retryPreview')}</button>
         </div>
       )}
 

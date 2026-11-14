@@ -24,11 +24,12 @@ import { SkinPreviewRenderer } from '../src/components/skin/SkinPreviewRenderer'
 let observer: IntersectionObserverCallback;
 let hidden = false;
 let frame = 0;
+let now = 0;
 let pending = new Map<number, FrameRequestCallback>();
 let root: ReturnType<typeof createRoot>;
 beforeEach(() => {
-  mocks.renderers.length = 0; mocks.update.mockClear(); pending = new Map(); hidden = false;
-  mocks.scene.mockReturnValue({ isModelLoaded: true, isTextureLoaded: true, scene: null, modelCenter: [0, 1, 0], modelSize: [1, 2, 1] });
+  mocks.renderers.length = 0; mocks.update.mockClear(); pending = new Map(); hidden = false; now = 0;
+  mocks.scene.mockReturnValue({ isModelLoaded: true, isTextureLoaded: true, scene: null, error: false, retry: vi.fn(), modelCenter: [0, 1, 0], modelSize: [1, 2, 1] });
   vi.stubGlobal('IntersectionObserver', class { constructor(callback: IntersectionObserverCallback) { observer = callback; } observe() {} disconnect() {} });
   vi.spyOn(document, 'hidden', 'get').mockImplementation(() => hidden);
   vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { pending.set(++frame, callback); return frame; });
@@ -37,7 +38,7 @@ beforeEach(() => {
 });
 afterEach(async () => { await act(async () => root.unmount()); vi.unstubAllGlobals(); });
 async function visible(value: boolean) { await act(async () => observer([{ isIntersecting: value } as IntersectionObserverEntry], {} as IntersectionObserver)); }
-function tick() { const batch = [...pending.values()]; pending.clear(); for (const callback of batch) callback(0); }
+function tick() { now += 1000 / 60; const batch = [...pending.values()]; pending.clear(); for (const callback of batch) callback(now); }
 test('has no renderer or frames outside the viewport and one loop while visible', async () => {
   await act(async () => root.render(<StrictMode><SkinPreviewRenderer textureSrc="skin" /></StrictMode>));
   expect(mocks.renderers).toHaveLength(0); expect(pending.size).toBe(0);
@@ -45,7 +46,7 @@ test('has no renderer or frames outside the viewport and one loop while visible'
   await visible(true);
   expect(mocks.renderers).toHaveLength(1); expect(pending.size).toBe(1);
   for (let n = 0; n < 60; n++) tick();
-  expect(mocks.renderers[0].render).toHaveBeenCalledTimes(60); expect(mocks.update).toHaveBeenCalledTimes(60);
+  expect(mocks.renderers[0].render).toHaveBeenCalledTimes(30); expect(mocks.update).toHaveBeenCalledTimes(30);
   expect(pending.size).toBe(1);
   await visible(false);
   expect(pending.size).toBe(0); expect(mocks.renderers[0].dispose).toHaveBeenCalledTimes(1);
@@ -65,4 +66,18 @@ test('releases the renderer when the document is hidden and resumes only if inte
   expect(mocks.renderers).toHaveLength(1); expect(pending.size).toBe(0);
   await visible(true); tick();
   expect(mocks.renderers).toHaveLength(2); expect(mocks.renderers[1].render).toHaveBeenCalledTimes(1);
+});
+
+test('never creates WebGL or schedules frames while loading or after a failed texture and allows retry', async () => {
+  const retry = vi.fn();
+  mocks.scene.mockReturnValue({ isModelLoaded: true, isTextureLoaded: false, error: false, retry, scene: null, modelCenter: [0,1,0], modelSize: [1,2,1] });
+  const container = document.createElement('div'); await act(async () => { root.unmount(); root = createRoot(container); root.render(<SkinPreviewRenderer textureSrc="skin"/>); });
+  await visible(true); expect(mocks.renderers).toHaveLength(0); expect(pending.size).toBe(0);
+  mocks.scene.mockReturnValue({ isModelLoaded: true, isTextureLoaded: false, error: true, retry, scene: null, modelCenter: [0,1,0], modelSize: [1,2,1] });
+  await act(async () => root.render(<SkinPreviewRenderer textureSrc="skin"/>));
+  expect(container.querySelector('[role="alert"]')).not.toBeNull(); expect(pending.size).toBe(0);
+  await act(async () => container.querySelector('button')!.click()); expect(retry).toHaveBeenCalledTimes(1);
+  mocks.scene.mockReturnValue({ isModelLoaded: true, isTextureLoaded: true, error: false, retry, scene: null, modelCenter: [0,1,0], modelSize: [1,2,1] });
+  await act(async () => root.render(<SkinPreviewRenderer textureSrc="skin"/>));
+  expect(mocks.renderers).toHaveLength(1); expect(pending.size).toBe(1); tick(); expect(mocks.renderers[0].render).toHaveBeenCalledTimes(1);
 });

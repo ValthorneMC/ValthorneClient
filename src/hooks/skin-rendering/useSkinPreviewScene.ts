@@ -114,6 +114,10 @@ export function useSkinPreviewScene({
   initializeAnimations: (loadedScene: Object3D, clips: AnimationClip[]) => void;
   cleanupAnimationState: (root: Object3D | null) => void;
 }) {
+  const [attempt, setAttempt] = useState(0);
+  const [modelError, setModelError] = useState(false);
+  const [textureError, setTextureError] = useState(false);
+  const clipsRef = useRef<AnimationClip[]>([]);
   const [scene, setScene] = useState<Object3D | null>(null);
   const sceneRef = useRef<Object3D | null>(null);
   const [isModelLoaded, setIsModelLoaded] = useState(false);
@@ -133,13 +137,14 @@ export function useSkinPreviewScene({
     const transparent = createTransparentTexture();
     transparentTextureRef.current = transparent;
     setIsModelLoaded(false);
+    setModelError(false);
     void loadGltfModel(selectedModelSrc).then(gltf => {
       if (cancelled) return;
       const cloned = cloneSceneForRenderer(gltf.scene);
       sceneRef.current = cloned;
       applyTexture(cloned, textureRef.current ?? transparent);
       applyCapeTexture(cloned, capeTextureRef.current, transparent);
-      if (gltf.animations?.length) callbacks.current.initializeAnimations(cloned, gltf.animations);
+      clipsRef.current = gltf.animations ?? [];
       const box = getVisibleMeshBox(cloned);
       const center = box?.getCenter(new Vector3()) ?? new Vector3(0, 1, 0);
       const size = box?.getSize(new Vector3()) ?? new Vector3(1, 2, 1);
@@ -148,7 +153,7 @@ export function useSkinPreviewScene({
       setScene(cloned);
       setIsModelLoaded(true);
     }).catch(error => {
-      if (!cancelled) console.error('Failed to load model:', error);
+      if (!cancelled) { setModelError(true); console.error('Failed to load model:', error); }
     });
     return () => {
       cancelled = true;
@@ -161,20 +166,21 @@ export function useSkinPreviewScene({
       transparent.dispose();
       transparentTextureRef.current = null;
     };
-  }, [enabled, selectedModelSrc]);
+  }, [enabled, selectedModelSrc, attempt]);
 
   useEffect(() => {
     if (!enabled) return;
     let cancelled = false;
     const lease = textureSrc ? acquireTexture(textureSrc) : null;
     setIsTextureLoaded(false);
+    setTextureError(false);
     void (lease?.texture ?? Promise.resolve(null)).then(texture => {
       if (cancelled) return;
       textureRef.current = texture;
       if (sceneRef.current && texture) applyTexture(sceneRef.current, texture);
       setIsTextureLoaded(true);
     }).catch(error => {
-      if (!cancelled) console.error('Failed to load texture:', error);
+      if (!cancelled) { setTextureError(true); console.error('Failed to load texture:', error); }
     });
     return () => {
       cancelled = true;
@@ -184,7 +190,7 @@ export function useSkinPreviewScene({
       }
       lease?.release();
     };
-  }, [enabled, textureSrc]);
+  }, [enabled, textureSrc, attempt]);
 
   useEffect(() => {
     if (!enabled) return;
@@ -203,7 +209,15 @@ export function useSkinPreviewScene({
       if (sceneRef.current) applyCapeTexture(sceneRef.current, null, transparentTextureRef.current ?? undefined);
       lease?.release();
     };
-  }, [enabled, capeSrc]);
+  }, [enabled, capeSrc, attempt]);
 
-  return { isModelLoaded, isTextureLoaded, modelCenter, modelSize, scene };
+  useEffect(() => {
+    if (!enabled || !scene || !isTextureLoaded || modelError || textureError) return;
+    if (clipsRef.current.length) callbacks.current.initializeAnimations(scene, clipsRef.current);
+    return () => callbacks.current.cleanupAnimationState(scene);
+  }, [enabled, scene, isTextureLoaded, modelError, textureError]);
+
+  return { isModelLoaded, isTextureLoaded, modelCenter, modelSize, scene,
+    error: modelError || textureError, retry: () => setAttempt(value => value + 1) };
+
 }

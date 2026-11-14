@@ -5,6 +5,8 @@ import LaunchButton from './LaunchButton';
 import AppBackground from '@/components/AppBackground';
 import { logger } from '@/utils/logger';
 import PlayTimeStats from './PlayTimeStats';
+import { useAnimatedBackgrounds } from '@/hooks/useAnimatedBackgrounds';
+import { useBackgroundVideoPlayback } from '@/hooks/useBackgroundVideoPlayback';
 
 
 import minecraftIcon from '@/assets/icons/minecraft.svg';
@@ -58,22 +60,8 @@ const InstanceView: React.FC<InstanceViewProps> = ({
   const [showTitle, setShowTitle] = useState(true);
   const videoRef = useRef<HTMLVideoElement | null>(null);
 
-  // Pause the background video while the window isn't visible (minimized/backgrounded)
-  // so it doesn't keep decoding frames for nothing.
-  useEffect(() => {
-    const handleVisibilityChange = () => {
-      const video = videoRef.current;
-      if (!video) return;
-      if (document.hidden) {
-        video.pause();
-      } else if (localVideoPath) {
-        video.play().catch(() => {});
-      }
-    };
-
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, [localVideoPath]);
+  const animatedBackgrounds = useAnimatedBackgrounds();
+  useBackgroundVideoPlayback(videoRef, localVideoPath);
 
   const instance = distribution.instances.find(inst => inst.id === instanceId);
 
@@ -88,6 +76,13 @@ const InstanceView: React.FC<InstanceViewProps> = ({
 
   // Download video when background_video is available
   useEffect(() => {
+    if (!animatedBackgrounds) {
+      setLocalVideoPath(null);
+      setVideoLoaded(false);
+      setShowTitle(true);
+      return;
+    }
+    let cancelled = false;
     const cacheKey = `${instanceId}-${instance?.background_video}`;
     const cached = videoCache.get(cacheKey);
 
@@ -113,19 +108,22 @@ const InstanceView: React.FC<InstanceViewProps> = ({
         .then((localPath) => {
           // Stream directly from disk via the asset protocol instead of pulling the whole
           // file across IPC as bytes.
+          if (cancelled) return;
           const assetUrl = convertFileSrc(localPath);
           setLocalVideoPath(assetUrl);
           // Save to cache without marking as loaded yet (will be marked when the video loads)
           videoCache.set(cacheKey, { assetUrl, loaded: false });
         })
         .catch((error) => {
+          if (cancelled) return;
           void logger.error('Error downloading video', error, 'InstanceView');
           setLocalVideoPath(null);
         });
     } else {
       setLocalVideoPath(null);
     }
-  }, [instance?.background_video, instanceId]);
+    return () => { cancelled = true; };
+  }, [instance?.background_video, instanceId, animatedBackgrounds]);
 
   // Fade out the title when the video is loaded
   useEffect(() => {
@@ -156,7 +154,7 @@ const InstanceView: React.FC<InstanceViewProps> = ({
   return (
     <div className="relative h-full w-full overflow-hidden">
       <AppBackground>
-        {localVideoPath ? (
+        {animatedBackgrounds && localVideoPath ? (
           <video
             key={localVideoPath}
             ref={videoRef}

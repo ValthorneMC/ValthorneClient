@@ -71,3 +71,13 @@ test('permits retry after a loader failure', async () => {
   expect(pending).toHaveLength(2);
   pending[1].complete(); await retry.texture; retry.release();
 });
+
+test('times out a stalled texture, disposes its late result and permits another load', async () => {
+  vi.useFakeTimers(); const pending = loader(); const url = `blob:timeout-${sequence++}`;
+  try {
+    const old = acquireTexture(url); const failure = expect(old.texture).rejects.toThrow('timed out');
+    await vi.advanceTimersByTimeAsync(10000); await failure; old.release();
+    pending[0].complete(); expect(pending[0].texture.dispose).toHaveBeenCalledTimes(1);
+    const next = acquireTexture(url); pending[1].complete(); await next.texture; next.release();
+  } finally { vi.useRealTimers(); }
+});

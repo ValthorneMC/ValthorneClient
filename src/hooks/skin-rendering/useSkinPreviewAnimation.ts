@@ -3,7 +3,7 @@
 // via update(delta) from the render loop, instead of Vue's reactive refs driving re-renders.
 
 import { useCallback, useEffect, useRef } from 'react';
-import { AnimationMixer, Clock, LoopRepeat, LoopOnce } from 'three';
+import { AnimationMixer, LoopRepeat, LoopOnce } from 'three';
 import type { AnimationMixerEventMap, AnimationAction, Object3D, AnimationClip } from 'three';
 
 import type { SkinPreviewAnimationConfig } from '@/lib/skin-rendering/types';
@@ -44,7 +44,6 @@ interface SkinPreviewAnimationImpulse {
 export function useSkinPreviewAnimation(animationConfig: SkinPreviewAnimationConfig | undefined) {
   const mixerRef = useRef<AnimationMixer | null>(null);
   const actionsRef = useRef<Record<string, AnimationAction>>({});
-  const clockRef = useRef(new Clock());
   const currentAnimationRef = useRef<string>('');
   const randomAnimationTimerRef = useRef<number | null>(null);
   const lastRandomAnimationRef = useRef<string>('');
@@ -255,7 +254,6 @@ export function useSkinPreviewAnimation(animationConfig: SkinPreviewAnimationCon
       }
 
       mixerRef.current = new AnimationMixer(loadedScene);
-      clockRef.current.start();
       actionsRef.current = {};
 
       clips.forEach((clip) => {
@@ -411,7 +409,6 @@ export function useSkinPreviewAnimation(animationConfig: SkinPreviewAnimationCon
 
   return {
     impulseRef,
-    clockRef,
     cleanupAnimationState,
     getAvailableAnimations,
     getCurrentAnimation,

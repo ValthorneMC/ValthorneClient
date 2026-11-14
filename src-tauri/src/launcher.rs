@@ -62,68 +62,7 @@ pub async fn find_or_install_java_for_minecraft(mc_version: &str) -> Result<Stri
 
 /// Downloads and installs Java without a user interface
 async fn download_java_silent(java_version: u8) -> Result<(), String> {
-    let version_str = java_version.to_string();
-    
-    let runtime_dir = crate::utils::runtime_dir();
-    let java_dir = crate::utils::java_runtime_dir(&version_str);
-
-    tokio::fs::create_dir_all(&runtime_dir).await
-        .map_err(|e| format!("Failed to create runtime directory: {}", e))?;
-
-    let (os, arch) = crate::utils::adoptium_os_and_arch();
-    let extension = crate::utils::adoptium_archive_extension();
-
-    let jre_url = format!(
-        "https://api.adoptium.net/v3/binary/latest/{}/ga/{}/{}/jdk/hotspot/normal/eclipse",
-        version_str, os, arch
-    );
-    
-    log::info!("Downloading Java {} from: {}", version_str, jre_url);
-    
-    let client = reqwest::Client::new();
-    let response = client
-        .get(&jre_url)
-        .header("User-Agent", "ValthorneClient/1.0")
-        .header("Accept", "application/octet-stream")
-        .send()
-        .await
-        .map_err(|e| format!("Failed to download Java: {}", e))?;
-    
-    if !response.status().is_success() {
-        return Err(format!("Download failed with status: {}", response.status()));
-    }
-    
-    let temp_file = runtime_dir.join(format!("java-{}.{}", version_str, extension));
-
-    // Stream to disk instead of buffering the whole JDK archive (150-200 MB) in memory.
-    use tokio::io::AsyncWriteExt;
-    let mut file = tokio::fs::File::create(&temp_file).await
-        .map_err(|e| format!("Failed to create temp file: {}", e))?;
-    let mut stream = response.bytes_stream();
-    use futures_util::TryStreamExt;
-    while let Some(chunk) = stream.try_next().await
-        .map_err(|e| format!("Failed to read Java download: {}", e))?
-    {
-        file.write_all(&chunk).await
-            .map_err(|e| format!("Failed to write temp file: {}", e))?;
-    }
-    file.flush().await
-        .map_err(|e| format!("Failed to flush temp file: {}", e))?;
-    drop(file);
-    
-    if java_dir.exists() {
-        let _ = std::fs::remove_dir_all(&java_dir);
-    }
-    
-    let staging_dir = crate::utils::java_staging_dir(&runtime_dir, &version_str);
-    let _ = std::fs::remove_dir_all(&staging_dir);
-    crate::utils::extract_java_archive(&temp_file, &staging_dir, |_, _| {})?;
-    crate::utils::finalize_extracted_java(&staging_dir, &java_dir)?;
-
-    let _ = std::fs::remove_file(&temp_file);
-    
-    log::info!("Java {} installed successfully", version_str);
-    Ok(())
+    crate::java_install::install(&java_version.to_string(), std::sync::Arc::new(|_, _| {})).await
 }
 
 pub fn build_minecraft_classpath_from_json(instance_dir: &Path, version_json_path: &Path) -> Result<String, String> {

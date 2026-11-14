@@ -1,7 +1,7 @@
 import { beforeEach, expect, test, vi } from 'vitest';
 import { invoke } from '@tauri-apps/api/core';
 import { SkinStorageService } from '../src/services/skin/skinStorage';
-vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
+vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn(), convertFileSrc: (path: string) => `asset://${path}` }));
 vi.mock('@/utils/logger', () => ({ logger: { error: vi.fn() } }));
 const metadata = Array.from({ length: 100 }, (_, i) => ({ id: `skin-${i}`, uploadedAt: '2026-01-01', variant: 'slim', url: 'https://example.test/skin.png' }));
 beforeEach(() => {
@@ -55,4 +55,17 @@ test('retains metadata when one PNG is absent or unreadable', async () => {
   expect(skins[2].fileData).toBeUndefined();
   expect(skins[0].url).toBe(metadata[0].url);
   expect(new Uint8Array(skins[1].fileData!)[0]).toBe(9);
+});
+
+test('lists 500 skins without transferring PNG data and reads only the selected file for editing', async () => {
+  const many = Array.from({length:500},(_,index)=>({...metadata[0],id:`skin-${index}`}));
+  localStorage.setItem('valthorne_user_skins_metadata', JSON.stringify(many));
+  vi.mocked(invoke).mockImplementation(async command => command === 'list_skin_files' ? many.map(s=>s.id) : command === 'get_skins_directory_path' ? '/test/skins' : [1,2,3]);
+  const skins = await SkinStorageService.getStoredSkins(false);
+  expect(skins).toHaveLength(500); expect(skins.every(s=>!s.fileData)).toBe(true); expect(invoke).toHaveBeenCalledTimes(2);
+  expect(skins[42].previewUrl).toContain('asset:///test/skins/skin-42.png?v=');
+  expect((await SkinStorageService.getStoredSkin('skin-42'))?.fileData?.byteLength).toBe(3);
+  expect(invoke).toHaveBeenLastCalledWith('load_skin_file',{skinId:'skin-42'});
+  many[42] = {...many[42], updatedAt: 123} as any; localStorage.setItem('valthorne_user_skins_metadata',JSON.stringify(many));
+  expect((await SkinStorageService.getStoredSkins(false))[42].previewUrl).not.toBe(skins[42].previewUrl);
 });

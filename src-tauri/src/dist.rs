@@ -273,14 +273,14 @@ fn safe_target(target: &str) -> Result<String, String> {
     Ok(rel)
 }
 
-fn emit_progress(app: &AppHandle, done: u64, total: u64) {
+fn emit_progress(app: &AppHandle, done: u64, total: u64, range: (f64, f64)) {
     let fraction = if total == 0 { 1.0 } else { (done as f64 / total as f64).min(1.0) };
     let _ = app.emit(
         "asset-download-progress",
         serde_json::json!({
             "current": done,
             "total": total,
-            "percentage": 90.0 + 10.0 * fraction,
+            "percentage": range.0 + (range.1 - range.0) * fraction,
             "current_file": "",
             "status": "Instance",
         }),
@@ -289,7 +289,7 @@ fn emit_progress(app: &AppHandle, done: u64, total: u64) {
 
 /// Brings the instance in line with the manifest: downloads what is missing or changed,
 /// and removes what the manifest no longer lists. Fails if anything cannot be installed.
-pub async fn sync_instance(app: &AppHandle, instance_dir: &Path, manifest: &Manifest) -> Result<(), String> {
+pub async fn sync_instance(app: &AppHandle, instance_dir: &Path, manifest: &Manifest, range: (f64, f64)) -> Result<(), String> {
     remove_legacy_mods(instance_dir).await;
 
     let mut jobs: Vec<Job> = Vec::new();
@@ -328,7 +328,7 @@ pub async fn sync_instance(app: &AppHandle, instance_dir: &Path, manifest: &Mani
     }
 
     if !jobs.is_empty() {
-        download_jobs(app, jobs, true).await?;
+        download_jobs(app, jobs, true, range).await?;
     }
 
     prune_mods(&mods_store_dir(instance_dir), &expected_mods);
@@ -336,7 +336,7 @@ pub async fn sync_instance(app: &AppHandle, instance_dir: &Path, manifest: &Mani
     Ok(())
 }
 
-async fn download_jobs(app: &AppHandle, jobs: Vec<Job>, report: bool) -> Result<(), String> {
+async fn download_jobs(app: &AppHandle, jobs: Vec<Job>, report: bool, range: (f64, f64)) -> Result<(), String> {
     let client = download_client()?;
 
     let mut hashes: Vec<String> = jobs.iter().map(|j| j.sha256.clone()).collect();
@@ -352,7 +352,7 @@ async fn download_jobs(app: &AppHandle, jobs: Vec<Job>, report: bool) -> Result<
         tokio::spawn(async move {
             loop {
                 if report {
-                    emit_progress(&app, progress.load(Ordering::Relaxed), total);
+                    emit_progress(&app, progress.load(Ordering::Relaxed), total, range);
                 }
                 tokio::time::sleep(Duration::from_millis(250)).await;
             }
@@ -374,7 +374,7 @@ async fn download_jobs(app: &AppHandle, jobs: Vec<Job>, report: bool) -> Result<
 
     ticker.abort();
     if report {
-        emit_progress(app, total, total);
+        emit_progress(app, total, total, range);
     }
 
     let errors: Vec<String> = results.into_iter().filter_map(|r| r.err()).collect();
@@ -447,7 +447,7 @@ pub async fn ensure_asset(app: &AppHandle, instance_dir: &Path, manifest: &Manif
         return Ok(dest);
     }
 
-    download_jobs(app, vec![Job { sha256: file.sha256.clone(), size: file.size, dest: dest.clone() }], false).await?;
+    download_jobs(app, vec![Job { sha256: file.sha256.clone(), size: file.size, dest: dest.clone() }], false, (0.0, 100.0)).await?;
     Ok(dest)
 }
 

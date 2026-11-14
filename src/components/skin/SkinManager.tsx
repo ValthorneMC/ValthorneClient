@@ -2,6 +2,8 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ImageUp, Info, Pencil, Plus, Save, UploadCloud, X } from 'lucide-react';
 import { SkinPreviewRenderer } from './SkinPreviewRenderer';
+import { SkinThumbnail } from './SkinThumbnail';
+import { VirtualSkinGrid } from './VirtualSkinGrid';
 import { releaseTexture } from '@/lib/skin-rendering/skin-rendering';
 import { useSkinObjectUrls } from '@/hooks/skin-rendering/useSkinObjectUrls';
 import { SkinData, SkinModel, CapeData } from '@/types/skin';
@@ -143,6 +145,7 @@ export const SkinManager: React.FC<SkinManagerProps> = ({ currentUser, addToast 
   }), []);
 
   const getSkinUrl = useCallback((skin: SkinData): string => {
+    if (skin.previewUrl) return skin.previewUrl;
     if (blobUrlsRef.current.has(skin.id)) {
       return blobUrlsRef.current.get(skin.id)!;
     }
@@ -319,29 +322,10 @@ export const SkinManager: React.FC<SkinManagerProps> = ({ currentUser, addToast 
 
     const initializeSkins = async () => {
       try {
-        const savedSkins = await SkinStorageService.getStoredSkins();
+        const savedSkins = await SkinStorageService.getStoredSkins(false);
         const activeSkin = await SkinStorageService.getActiveSkin(savedSkins);
         if (cancelled) return;
 
-        savedSkins.forEach(skin => {
-          if (skin.fileData && skin.fileData instanceof ArrayBuffer && skin.fileData.byteLength > 0) {
-            if (!blobUrlsRef.current.has(skin.id)) {
-              try {
-                const uint8Array = new Uint8Array(skin.fileData);
-                const buffer = new ArrayBuffer(uint8Array.length);
-                const view = new Uint8Array(buffer);
-                view.set(uint8Array);
-                const blob = new Blob([buffer], { type: 'image/png' });
-                const blobUrl = URL.createObjectURL(blob);
-                blobUrlsRef.current.set(skin.id, blobUrl);
-              } catch (err) {
-                void logger.error(`Error creating blob URL for skin ${skin.id}`, err, 'SkinManager');
-              }
-            }
-          }
-        });
-
-        await new Promise(resolve => setTimeout(resolve, 50));
         if (cancelled) return;
 
         setSkins([...savedSkins]);
@@ -390,13 +374,7 @@ export const SkinManager: React.FC<SkinManagerProps> = ({ currentUser, addToast 
     setIsUploading(true);
 
     try {
-      const fileData = await file.arrayBuffer();
-      const uint8Array = new Uint8Array(fileData);
-      const buffer = new ArrayBuffer(uint8Array.length);
-      const view = new Uint8Array(buffer);
-      view.set(uint8Array);
-      const blob = new Blob([buffer], { type: 'image/png' });
-      const blobUrl = URL.createObjectURL(blob);
+      const buffer = await file.arrayBuffer();
 
       const newSkin: SkinData = {
         id: `skin_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
@@ -411,9 +389,8 @@ export const SkinManager: React.FC<SkinManagerProps> = ({ currentUser, addToast 
       };
 
       await SkinStorageService.saveSkin(newSkin);
-      blobUrlsRef.current.set(newSkin.id, blobUrl);
 
-      const updatedSkins = await SkinStorageService.getStoredSkins();
+      const updatedSkins = await SkinStorageService.getStoredSkins(false);
       setSkins([...updatedSkins]);
 
       addToast?.(t('toast.saved'), 'success');
@@ -426,8 +403,7 @@ export const SkinManager: React.FC<SkinManagerProps> = ({ currentUser, addToast 
   }, [addToast]);
 
   const getSkinWithFileData = useCallback(async (skinId: string): Promise<SkinData | null> => {
-    const allSkins = await SkinStorageService.getStoredSkins();
-    return allSkins.find(s => s.id === skinId) || null;
+    return SkinStorageService.getStoredSkin(skinId);
   }, []);
 
   const getSkinFileData = useCallback(async (skin: SkinData): Promise<ArrayBuffer> => {
@@ -473,7 +449,7 @@ export const SkinManager: React.FC<SkinManagerProps> = ({ currentUser, addToast 
     await SkinStorageService.setActiveSkin(skin.id);
     setSelectedSkinId(skin.id);
 
-    const allSkins = await SkinStorageService.getStoredSkins();
+    const allSkins = await SkinStorageService.getStoredSkins(false);
     setSkins([...allSkins]);
 
     refreshAvatars();
@@ -528,7 +504,7 @@ export const SkinManager: React.FC<SkinManagerProps> = ({ currentUser, addToast 
               };
               await SkinStorageService.saveSkin(updatedSkin);
 
-              const updatedSkins = await SkinStorageService.getStoredSkins();
+              const updatedSkins = await SkinStorageService.getStoredSkins(false);
               setSkins([...updatedSkins]);
             }
           }
@@ -581,7 +557,7 @@ export const SkinManager: React.FC<SkinManagerProps> = ({ currentUser, addToast 
 
       setExternalActiveSkin(null);
       setSelectedSkinId(importedSkin.id);
-      const updatedSkins = await SkinStorageService.getStoredSkins();
+      const updatedSkins = await SkinStorageService.getStoredSkins(false);
       setSkins([...updatedSkins]);
       addToast?.(t('toast.imported'), 'success');
     } catch (error) {
@@ -606,7 +582,7 @@ export const SkinManager: React.FC<SkinManagerProps> = ({ currentUser, addToast 
       }
 
       await SkinStorageService.deleteSkin(skinId);
-      const updatedSkins = await SkinStorageService.getStoredSkins();
+      const updatedSkins = await SkinStorageService.getStoredSkins(false);
       setSkins([...updatedSkins]);
       addToast?.(t('toast.deleted'), 'success');
       refreshAvatars();
@@ -739,11 +715,9 @@ export const SkinManager: React.FC<SkinManagerProps> = ({ currentUser, addToast 
         if (blobUrlsRef.current.has(activeSkin.id)) {
           blobUrlsRef.current.delete(activeSkin.id);
         }
-        const blob = new Blob([workingSkin.fileData!], { type: 'image/png' });
-        blobUrlsRef.current.set(activeSkin.id, URL.createObjectURL(blob));
       }
 
-      setSkins([...(await SkinStorageService.getStoredSkins())]);
+      setSkins([...(await SkinStorageService.getStoredSkins(false))]);
 
       if (textureChanged || variantChanged) {
         const timeSinceLastUpload = Date.now() - lastUploadTimeRef.current;
@@ -782,7 +756,7 @@ export const SkinManager: React.FC<SkinManagerProps> = ({ currentUser, addToast 
                     isMojangSynced: true,
                   };
                   await SkinStorageService.saveSkin(finalSkin);
-                  setSkins([...(await SkinStorageService.getStoredSkins())]);
+                  setSkins([...(await SkinStorageService.getStoredSkins(false))]);
                 }
               }
             } catch {
@@ -860,7 +834,7 @@ export const SkinManager: React.FC<SkinManagerProps> = ({ currentUser, addToast 
           </h1>
 
           <div className="relative w-full h-[calc(80vh-1rem)] min-h-[280px] flex items-center justify-center">
-            <SkinPreviewRenderer
+            {!showEditModal && <SkinPreviewRenderer
               key={`main-preview-${activeSkin?.id ?? 'default'}-${activeSkin?.variant ?? 'classic'}`}
               textureSrc={activeSkinTextureForCapes}
               capeSrc={hasActiveCape ? activeCape?.url : undefined}
@@ -895,7 +869,7 @@ export const SkinManager: React.FC<SkinManagerProps> = ({ currentUser, addToast 
                   )
                 ) : undefined
               }
-            />
+            />}
 
             {isUploading && (
               <div className="absolute inset-0 flex items-center justify-center bg-black/40 backdrop-blur-sm">
@@ -908,6 +882,7 @@ export const SkinManager: React.FC<SkinManagerProps> = ({ currentUser, addToast 
         {/* Contenido scrollable: skins */}
         <div
           {...getRootProps()}
+          data-skin-scroll
           className="overflow-y-auto min-h-0 custom-scrollbar pr-2 pt-1"
         >
           <input {...getInputProps()} />
@@ -930,7 +905,7 @@ export const SkinManager: React.FC<SkinManagerProps> = ({ currentUser, addToast 
                 <div className="animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-[#d4af37]" />
               </div>
             ) : (
-              <div className="grid grid-cols-2 sm:grid-cols-3 min-[1000px]:grid-cols-4 min-[1300px]:grid-cols-5 min-[1600px]:grid-cols-6 gap-3">
+              <VirtualSkinGrid>
                 <div
                   onClick={() => {
                     if (!isUploading) {
@@ -964,15 +939,7 @@ export const SkinManager: React.FC<SkinManagerProps> = ({ currentUser, addToast 
                     onClick={handleImportExternalSkin}
                     className="group relative aspect-[31/40] w-full rounded-[20px] overflow-hidden transition-all duration-300 ease-out cursor-pointer valthorne-selected-ring"
                   >
-                    <SkinPreviewRenderer
-                      key={`preview-${externalActiveSkin.id}`}
-                      textureSrc={externalActiveSkin.url}
-                      capeSrc={hasActiveCape ? activeCape?.url : undefined}
-                      variant={externalActiveSkin.variant === 'slim' ? 'SLIM' : 'CLASSIC'}
-                      framing="modal"
-                      interactive={false}
-                      className="w-full h-full pointer-events-none"
-                    />
+                    <SkinThumbnail src={externalActiveSkin.url} slim={externalActiveSkin.variant === 'slim'} label={externalActiveSkin.name} />
 
                     <div className="absolute top-2 left-2 z-20 rounded-full bg-[#d4af37] px-2 py-0.5 text-[10px] font-bold text-black shadow-lg">
                       {t('current')}
@@ -998,15 +965,7 @@ export const SkinManager: React.FC<SkinManagerProps> = ({ currentUser, addToast 
                         isUploading ? 'pointer-events-none opacity-50' : 'cursor-pointer'
                       } ${isSelected ? 'valthorne-selected-ring' : 'ring-1 ring-white/10 hover:ring-white/25'}`}
                     >
-                      <SkinPreviewRenderer
-                        key={`preview-${skin.id}-${skin.variant}`}
-                        textureSrc={skinUrl}
-                        capeSrc={hasActiveCape ? activeCape?.url : undefined}
-                        variant={skin.variant === 'slim' ? 'SLIM' : 'CLASSIC'}
-                        framing="modal"
-                        interactive={false}
-                        className="w-full h-full pointer-events-none"
-                      />
+                      <SkinThumbnail src={skinUrl} slim={skin.variant === 'slim'} label={skin.name} />
 
                       {!isSelected && (
                         <button
@@ -1023,7 +982,7 @@ export const SkinManager: React.FC<SkinManagerProps> = ({ currentUser, addToast 
                     </div>
                   );
                 })}
-              </div>
+              </VirtualSkinGrid>
             )}
           </section>
         </div>
