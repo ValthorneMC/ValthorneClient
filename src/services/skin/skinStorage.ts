@@ -1,5 +1,5 @@
 import { SkinData } from '@/types/skin';
-import { invoke } from '@tauri-apps/api/core';
+import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { logger } from '@/utils/logger';
 
 const SKINS_METADATA_KEY = 'valthorne_user_skins_metadata';
@@ -25,6 +25,7 @@ export class SkinStorageService {
         textureId: skinData.textureId || '',
         variant: skinData.variant,
         uploadedAt: skinData.uploadedAt.toISOString(),
+        updatedAt: Date.now(),
         isActive: skinData.isActive || false,
         isMojangSynced: skinData.isMojangSynced || false
       };
@@ -39,12 +40,16 @@ export class SkinStorageService {
     }
   }
 
-  static async getStoredSkins(): Promise<SkinData[]> {
+  static async getStoredSkins(loadFiles = true): Promise<SkinData[]> {
     try {
       const metadata = await this.getSkinsMetadata();
       const skinFiles = await invoke<string[]>('list_skin_files');
 
       const files = new Set(skinFiles);
+      if (!loadFiles) {
+        const directory = metadata.some(meta => files.has(meta.id)) ? await invoke<string>('get_skins_directory_path') : '';
+        return Promise.all(metadata.map(meta => this.readSkin(meta, files, false, directory)));
+      }
       const skins: SkinData[] = new Array(metadata.length);
       let next = 0;
       await Promise.all(Array.from({ length: Math.min(8, metadata.length) }, async () => {
@@ -58,6 +63,12 @@ export class SkinStorageService {
       void logger.error('Error loading skins', error, 'SkinStorageService');
       return [];
     }
+  }
+
+  static async getStoredSkin(skinId: string): Promise<SkinData | null> {
+    const meta = (await this.getSkinsMetadata()).find(entry => entry.id === skinId);
+    if (!meta) return null;
+    return this.readSkin(meta, new Set(await invoke<string[]>('list_skin_files')));
   }
 
   private static async getSkinsMetadata(): Promise<any[]> {
@@ -116,9 +127,9 @@ export class SkinStorageService {
     }
   }
 
-  private static async readSkin(meta: any, files: ReadonlySet<string>): Promise<SkinData> {
+  private static async readSkin(meta: any, files: ReadonlySet<string>, loadFile = true, directory = ''): Promise<SkinData> {
     let fileData: ArrayBuffer | undefined;
-    if (files.has(meta.id)) {
+    if (loadFile && files.has(meta.id)) {
       try {
         const bytes = await invoke<number[]>('load_skin_file', { skinId: meta.id });
         fileData = new Uint8Array(bytes).buffer;
@@ -136,6 +147,7 @@ export class SkinStorageService {
       isActive: meta.isActive || false,
       isMojangSynced: meta.isMojangSynced || false,
       fileData,
+      previewUrl: directory && files.has(meta.id) ? `${convertFileSrc(`${directory}/${meta.id}.png`)}?v=${encodeURIComponent(meta.updatedAt ?? meta.uploadedAt)}` : undefined,
     };
   }
 

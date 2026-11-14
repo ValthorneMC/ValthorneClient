@@ -244,6 +244,11 @@ fn get_skins_directory() -> std::path::PathBuf {
 }
 
 #[tauri::command]
+pub fn get_skins_directory_path() -> String {
+    get_skins_directory().to_string_lossy().to_string()
+}
+
+#[tauri::command]
 pub async fn save_skin_file(skin_id: String, file_data: Vec<u8>) -> Result<String, String> {
     crate::utils::sanitize_filename_component(&skin_id)?;
     let skins_dir = get_skins_directory();

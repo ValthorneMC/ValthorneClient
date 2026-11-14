@@ -382,6 +382,7 @@ pub fn run() {
             upload_skin_to_mojang,
             create_temp_file,
             save_skin_file,
+            get_skins_directory_path,
             load_skin_file,
             delete_skin_file,
             list_skin_files,
