@@ -30,8 +30,8 @@ import { logger } from "@/utils/logger";
 import { i18n, translateBackendError } from "@/i18n";
 
 const SettingsView = deferredView(() => import('@/components/SettingsView'));
-const InstanceView = deferredView(() => import('@/components/InstanceView'));
-const SkinManager = deferredView<ComponentProps<typeof import('@/components/skin/SkinManager').SkinManager>>(() => import('@/components/skin/SkinManager').then(module => ({ default: module.SkinManager })));
+const InstanceView = deferredView(() => import('@/components/InstanceView'), 'instance');
+const SkinManager = deferredView<ComponentProps<typeof import('@/components/skin/SkinManager').SkinManager>>(() => import('@/components/skin/SkinManager').then(module => ({ default: module.SkinManager })), 'skins');
 
 // Function to update Discord presence
 const updateDiscordPresence = async (state: string, details: string) => {
