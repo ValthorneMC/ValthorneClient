@@ -3,5 +3,32 @@
   "extends": [
     "config:recommended"
   ],
-  "baseBranches": ["development"]
+  "recreateWhen": "never",
+  "packageRules": [
+    {
+      "description": "Do not propose the React versions already rejected in PRs #38 and #69.",
+      "matchManagers": [
+        "npm"
+      ],
+      "matchPackageNames": [
+        "react",
+        "react-dom"
+      ],
+      "allowedVersions": "!/^(19\\.3\\.1)$/"
+    },
+    {
+      "description": "Do not propose the React type versions already rejected in PRs #38 and #69.",
+      "matchManagers": [
+        "npm"
+      ],
+      "matchPackageNames": [
+        "@types/react",
+        "@types/react-dom"
+      ],
+      "allowedVersions": "!/^(19\\.3\\.0)$/"
+    }
+  ],
+  "baseBranchPatterns": [
+    "development"
+  ]
 }
