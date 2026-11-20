@@ -546,7 +546,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a347dcabdae9c31b0825fd6a8bed285ec9c2acb89c47827126d52fa4f59cece3"
 dependencies = [
  "fnv",
- "uuid 1.29.2",
+ "uuid 1.29.3",
  "web-time",
 ]
 
@@ -2762,7 +2762,7 @@ dependencies = [
  "objc2",
  "objc2-foundation",
  "time",
- "uuid 1.29.2",
+ "uuid 1.29.3",
 ]
 
 [[package]]
@@ -4278,7 +4278,7 @@ dependencies = [
  "serde",
  "serde_json",
  "url",
- "uuid 1.29.2",
+ "uuid 1.29.3",
 ]
 
 [[package]]
@@ -4853,7 +4853,7 @@ dependencies = [
  "tokio-stream",
  "tracing",
  "url",
- "uuid 1.29.2",
+ "uuid 1.29.3",
 ]
 
 [[package]]
@@ -4935,7 +4935,7 @@ dependencies = [
  "thiserror 2.0.21",
  "time",
  "tracing",
- "uuid 1.29.2",
+ "uuid 1.29.3",
  "whoami",
 ]
 
@@ -4975,7 +4975,7 @@ dependencies = [
  "thiserror 2.0.21",
  "time",
  "tracing",
- "uuid 1.29.2",
+ "uuid 1.29.3",
  "whoami",
 ]
 
@@ -5002,7 +5002,7 @@ dependencies = [
  "time",
  "tracing",
  "url",
- "uuid 1.29.2",
+ "uuid 1.29.3",
 ]
 
 [[package]]
@@ -5395,7 +5395,7 @@ dependencies = [
  "thiserror 2.0.21",
  "time",
  "url",
- "uuid 1.29.2",
+ "uuid 1.29.3",
  "walkdir",
 ]
 
@@ -5536,7 +5536,7 @@ dependencies = [
  "thiserror 2.0.21",
  "time",
  "tokio",
- "uuid 1.29.2",
+ "uuid 1.29.3",
 ]
 
 [[package]]
@@ -5657,7 +5657,7 @@ dependencies = [
  "toml 1.2.1+spec-1.1.0",
  "url",
  "urlpattern",
- "uuid 1.29.2",
+ "uuid 1.29.3",
  "walkdir",
 ]
 
@@ -6190,9 +6190,9 @@ dependencies = [
 
 [[package]]
 name = "uuid"
-version = "1.29.2"
+version = "1.29.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bed99139f7dac9b5cfe5f17be4d66dc7079a34dee1d74bcc77217119240e267c"
+checksum = "3c14b15dffa2f4bd712103e857140aa04a4f2ff6e955c77d7eb8e53ee02a3b64"
 dependencies = [
  "getrandom 0.4.3",
  "js-sys",
@@ -6243,7 +6243,7 @@ dependencies = [
  "tokio",
  "url",
  "urlencoding",
- "uuid 1.29.2",
+ "uuid 1.29.3",
  "walkdir",
  "zip 8.6.0",
 ]
@@ -7135,7 +7135,7 @@ dependencies = [
  "serde_repr",
  "tracing",
  "uds_windows",
- "uuid 1.29.2",
+ "uuid 1.29.3",
  "windows-sys 0.61.2",
  "winnow 1.0.5",
  "zbus_macros 5.19.0",
@@ -7161,7 +7161,7 @@ dependencies = [
  "serde_repr",
  "socket2",
  "uds_windows",
- "uuid 1.29.2",
+ "uuid 1.29.3",
  "windows-sys 0.61.2",
  "winnow 1.0.5",
  "zbus_macros 6.3.0",
