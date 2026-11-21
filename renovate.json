@@ -26,9 +26,31 @@
         "@types/react-dom"
       ],
       "allowedVersions": "!/^(19\\.3\\.0)$/"
+    },
+    {
+      "description": "Batch routine dependency updates into one weekly pull request.",
+      "matchPackageNames": [
+        "*"
+      ],
+      "groupName": "weekly dependencies",
+      "groupSlug": "weekly-dependencies",
+      "separateMajorMinor": false,
+      "separateMinorPatch": false
     }
   ],
   "baseBranchPatterns": [
     "development"
-  ]
+  ],
+  "timezone": "Europe/Madrid",
+  "schedule": [
+    "* 9-11 * * 1"
+  ],
+  "vulnerabilityAlerts": {
+    "enabled": true,
+    "schedule": [
+      "at any time"
+    ],
+    "groupName": null,
+    "groupSlug": null
+  }
 }
