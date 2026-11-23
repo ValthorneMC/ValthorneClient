@@ -892,7 +892,7 @@ pub async fn get_minecraft_profile_safe(access_token: String) -> Result<ProfileR
 }
 
 pub fn get_required_java_version(minecraft_version: &str) -> String {
-    crate::launcher::get_required_java_version_for_minecraft(minecraft_version).to_string()
+    crate::java_install::required_java_version(minecraft_version).to_string()
 }
 
 #[tauri::command]
