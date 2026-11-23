@@ -1,39 +1,9 @@
 use anyhow::Result;
 use std::path::{Path, PathBuf};
 
-pub fn get_required_java_version_for_minecraft(mc_version: &str) -> u8 {
-    let version_parts: Vec<&str> = mc_version.split('.').collect();
-    
-    if version_parts.len() < 2 {
-        return 8;
-    }
-    
-    let major = version_parts.get(0).and_then(|v| v.parse::<u32>().ok()).unwrap_or(1);
-    let minor = version_parts.get(1).and_then(|v| v.parse::<u32>().ok()).unwrap_or(0);
-    let patch = version_parts.get(2).and_then(|v| v.parse::<u32>().ok()).unwrap_or(0);
-
-    // Minecraft 26+ 
-    if major >= 26 || (major == 1 && minor >= 26) {
-        return 25;
-    }
-    
-    if major == 1 && (minor > 20 || (minor == 20 && patch >= 5)) {
-        return 21;
-    }
-    
-    if major == 1 && minor >= 18 && minor <= 20 {
-        return 17;
-    }
-    
-    if major == 1 && minor == 17 {
-        return 16;
-    }
-    8
-}
-
 /// Automatically finds or installs the Java executable for a specific Minecraft version
 pub async fn find_or_install_java_for_minecraft(mc_version: &str) -> Result<String, String> {
-    let required_java_version = get_required_java_version_for_minecraft(mc_version);
+    let required_java_version = crate::java_install::required_java_version(mc_version);
 
     // Check whether the required version already exists in runtime
     let java_path = crate::utils::java_executable_for_version(&required_java_version.to_string());
@@ -417,10 +387,15 @@ mod tests {
 
 	#[test]
 	fn java_version_follows_the_minecraft_release() {
-		assert_eq!(get_required_java_version_for_minecraft("1.21.1"), 21);
-		assert_eq!(get_required_java_version_for_minecraft("1.20.4"), 17);
-		assert_eq!(get_required_java_version_for_minecraft("1.20.5"), 21);
-		assert_eq!(get_required_java_version_for_minecraft("1.16.5"), 8);
-		assert_eq!(get_required_java_version_for_minecraft("26.1"), 25);
+		assert_eq!(crate::java_install::required_java_version("1.21.1"), 21);
+		assert_eq!(crate::java_install::required_java_version("1.20.4"), 17);
+		assert_eq!(crate::java_install::required_java_version("1.20.5"), 21);
+		assert_eq!(crate::java_install::required_java_version("1.16.5"), 8);
+		assert_eq!(crate::java_install::required_java_version("1.17.1"), 16);
+		assert_eq!(crate::java_install::required_java_version("1.18"), 17);
+		assert_eq!(crate::java_install::required_java_version("1.21.11"), 21);
+		assert_eq!(crate::java_install::required_java_version("26.1"), 25);
+		assert_eq!(crate::java_install::required_java_version("26.2.1"), 25);
+		assert_eq!(crate::java_install::required_java_version("26.4-snapshot-10"), 25);
 	}
 }
