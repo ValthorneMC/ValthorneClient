@@ -433,6 +433,36 @@ pub async fn check_for_updates(app_handle: AppHandle, pending: State<'_, Pending
     }
 }
 
+#[cfg(target_os = "macos")]
+fn schedule_macos_update_relaunch(app_handle: &AppHandle) -> std::io::Result<Option<std::process::Child>> {
+    use std::os::unix::process::CommandExt;
+    use std::process::{Command, Stdio};
+
+    let env = app_handle.env();
+    let executable = tauri::process::current_binary(&env)?;
+    let Some(bundle) = executable
+        .ancestors()
+        .nth(3)
+        .filter(|bundle| bundle.extension().is_some_and(|ext| ext == "app"))
+    else {
+        return Ok(None);
+    };
+
+    // The helper waits for EOF when this process exits. Opening the bundle
+    // earlier can activate the old process or create a second Dock icon.
+    let helper = Command::new("/bin/sh")
+        .args(["-c", "read -r unused; exec /usr/bin/open \"$@\"", "valthorne-relaunch"])
+        .arg(bundle)
+        .arg("--args")
+        .args(env.args_os.iter().skip(1))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .process_group(0)
+        .spawn()?;
+    Ok(Some(helper))
+}
+
 #[tauri::command]
 pub async fn install_update(app_handle: AppHandle, pending: State<'_, PendingUpdateState>) -> Result<UpdateInstallOutcome, String> {
     use tauri_plugin_updater::UpdaterExt;
@@ -517,6 +547,17 @@ pub async fn install_update(app_handle: AppHandle, pending: State<'_, PendingUpd
     #[cfg(not(target_os = "windows"))]
     {
         log::info!("Update installed, restarting app");
+        #[cfg(target_os = "macos")]
+        match schedule_macos_update_relaunch(&app_handle) {
+            Ok(Some(_helper)) => {
+                // Keep the helper’s stdin open until process exit.
+                app_handle.cleanup_before_exit();
+                std::process::exit(0);
+            }
+            Ok(None) => {}
+            Err(error) => log::warn!("Could not schedule macOS bundle relaunch: {error}"),
+        }
+
         app_handle.cleanup_before_exit();
         tauri::process::restart(&app_handle.env());
     }
