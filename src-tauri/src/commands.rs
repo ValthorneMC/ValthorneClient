@@ -10,6 +10,8 @@ use crate::models::{DistributionInfo, DistributionManifest, InstanceSummary};
 use std::sync::{Arc, Mutex};
 use std::collections::HashMap;
 
+const DISTRIBUTION_INSTANCE_ID: &str = "valthorne";
+
 #[tauri::command]
 pub async fn create_instance_directory(instance_id: String, java_version: String) -> Result<String, String> {
     let kindly_dir = crate::utils::valthorne_dir();
@@ -27,7 +29,8 @@ pub async fn create_instance_directory(instance_id: String, java_version: String
 
 #[tauri::command]
 pub async fn get_required_java_version_command(minecraft_version: String) -> Result<String, String> {
-    Ok(super::get_required_java_version(&minecraft_version))
+    let instance_dir = crate::launcher::get_instance_directory(DISTRIBUTION_INSTANCE_ID);
+    Ok(crate::java_install::required_java_version(&instance_dir, &minecraft_version).await.to_string())
 }
 
 #[tauri::command]
@@ -819,7 +822,7 @@ pub async fn load_distribution_manifest() -> Result<DistributionManifest, String
             .map(|f| f.path.clone())
     };
     let summary = InstanceSummary {
-        id: "valthorne".to_string(),
+        id: DISTRIBUTION_INSTANCE_ID.to_string(),
         name: manifest.name.clone(),
         description: manifest.description.clone(),
         version: manifest.version.clone(),
@@ -889,10 +892,6 @@ pub async fn get_minecraft_profile_safe(access_token: String) -> Result<ProfileR
     }
     let json = response.json::<serde_json::Value>().await.map_err(|e| format!("Failed to parse profile json: {}", e))?;
     Ok(ProfileResponse { status: "Ok".into(), profile: Some(json), code: None, message: None })
-}
-
-pub fn get_required_java_version(minecraft_version: &str) -> String {
-    crate::java_install::required_java_version(minecraft_version).to_string()
 }
 
 #[tauri::command]
