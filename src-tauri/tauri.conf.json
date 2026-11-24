@@ -20,7 +20,10 @@
         "minWidth": 900,
         "minHeight": 650,
         "dragDropEnabled": false,
-        "theme": "Dark"
+        "theme": "Dark",
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true
+        
       }
     ],
     "security": {
