@@ -199,55 +199,113 @@ fn client_jar_checksum(version_json: &str) -> (Option<String>, Option<u64>) {
         .unwrap_or_default()
 }
 
-pub async fn ensure_minecraft_client_present(instance_dir: &Path, mc_version: &str) -> Result<(), String> {
-    let version_dir = instance_dir.join("versions").join(mc_version);
-    let jar_path = version_dir.join(format!("{}.jar", mc_version));
-    let json_path = version_dir.join(format!("{}.json", mc_version));
-
-    tokio::fs::create_dir_all(&version_dir).await
-        .map_err(|e| format!("Failed to create version dir {}: {}", version_dir.display(), e))?;
-
-    if !json_path.exists() {
-        let manifest_url = "https://launchermeta.mojang.com/mc/game/version_manifest.json";
-        let manifest_text = crate::http_client::HTTP_CLIENT.get(manifest_url).send().await
-            .map_err(|e| format!("Failed to fetch Mojang manifest: {}", e))?
-            .text().await
-            .map_err(|e| format!("Failed to read Mojang manifest: {}", e))?;
-
-        #[derive(serde::Deserialize)]
-        struct VmEntry { id: String, url: String }
-        #[derive(serde::Deserialize)]
-        struct VmRoot { versions: Vec<VmEntry> }
-
-        let vm: VmRoot = serde_json::from_str(&manifest_text)
-            .map_err(|e| format!("Failed to parse Mojang manifest: {}", e))?;
-        let Some(ver) = vm.versions.into_iter().find(|v| v.id == mc_version) else {
-            return Err(format!("Minecraft version {} not found in Mojang manifest", mc_version));
-        };
-
-        let vjson_text = crate::http_client::HTTP_CLIENT.get(&ver.url).send().await
-            .map_err(|e| format!("Failed to fetch version json: {}", e))?
-            .text().await
-            .map_err(|e| format!("Failed to read version json: {}", e))?;
-        tokio::fs::write(&json_path, &vjson_text).await
-            .map_err(|e| format!("Failed to write version json: {}", e))?;
+pub(crate) async fn load_minecraft_version_json(
+    instance_dir: &Path,
+    mc_version: &str,
+) -> Result<String, String> {
+    if mc_version.is_empty()
+        || matches!(mc_version, "." | "..")
+        || !mc_version
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b"._-+ ".contains(&byte))
+    {
+        return Err(format!("Invalid Minecraft version: {mc_version}"));
     }
 
-    let vjson_text_for_jar = tokio::fs::read_to_string(&json_path).await.ok();
-    let (jar_sha1, jar_size) = vjson_text_for_jar
-        .as_deref()
-        .map(client_jar_checksum)
-        .unwrap_or_default();
+    let version_dir = instance_dir.join("versions").join(mc_version);
+    let json_path = version_dir.join(format!("{mc_version}.json"));
+    let matches_version = |text: &str| {
+        serde_json::from_str::<serde_json::Value>(text)
+            .ok()
+            .and_then(|json| {
+                json.get("id")
+                    .and_then(|id| id.as_str())
+                    .map(|id| id == mc_version)
+            })
+            .unwrap_or(false)
+    };
+
+    if let Ok(text) = tokio::fs::read_to_string(&json_path).await {
+        if matches_version(&text) {
+            return Ok(text);
+        }
+    }
+
+    #[derive(serde::Deserialize)]
+    struct ManifestEntry {
+        id: String,
+        url: String,
+    }
+
+    #[derive(serde::Deserialize)]
+    struct Manifest {
+        versions: Vec<ManifestEntry>,
+    }
+
+    let client = &crate::http_client::HTTP_CLIENT;
+    let manifest = async {
+        client
+            .get("https://piston-meta.mojang.com/mc/game/version_manifest_v2.json")
+            .send()
+            .await?
+            .error_for_status()?
+            .json::<Manifest>()
+            .await
+    }
+    .await
+    .map_err(|error| format!("Failed to read Mojang manifest: {error}"))?;
+    let entry = manifest
+        .versions
+        .into_iter()
+        .find(|entry| entry.id == mc_version)
+        .ok_or_else(|| format!("Minecraft version {mc_version} not found in Mojang manifest"))?;
+
+    let text = async {
+        client
+            .get(entry.url)
+            .send()
+            .await?
+            .error_for_status()?
+            .text()
+            .await
+    }
+    .await
+    .map_err(|error| format!("Failed to fetch Minecraft {mc_version} metadata: {error}"))?;
+    if !matches_version(&text) {
+        return Err(format!("Invalid metadata for Minecraft {mc_version}"));
+    }
+
+    tokio::fs::create_dir_all(&version_dir)
+        .await
+        .map_err(|error| error.to_string())?;
+    let temp_path = json_path.with_extension(format!("{}.tmp", uuid::Uuid::new_v4()));
+    let saved = async {
+        tokio::fs::write(&temp_path, &text).await?;
+        tokio::fs::rename(&temp_path, &json_path).await
+    }
+    .await;
+    if let Err(error) = saved {
+        let _ = tokio::fs::remove_file(&temp_path).await;
+        return Err(format!(
+            "Failed to cache Minecraft {mc_version} metadata: {error}"
+        ));
+    }
+
+    Ok(text)
+}
+
+pub async fn ensure_minecraft_client_present(instance_dir: &Path, mc_version: &str) -> Result<(), String> {
+    let version_json = load_minecraft_version_json(instance_dir, mc_version).await?;
+    let jar_path = instance_dir.join("versions").join(mc_version).join(format!("{mc_version}.jar"));
+    let (jar_sha1, jar_size) = client_jar_checksum(&version_json);
     if !jar_path.exists() || !size_matches(&jar_path, jar_size) {
-        let vjson_text = tokio::fs::read_to_string(&json_path).await
-            .map_err(|e| format!("Failed to read version json: {}", e))?;
         #[derive(serde::Deserialize)]
         struct Dls { client: Option<Info> }
         #[derive(serde::Deserialize)]
         struct Info { url: String }
         #[derive(serde::Deserialize)]
         struct Vj { downloads: Option<Dls> }
-        let vj: Vj = serde_json::from_str(&vjson_text)
+        let vj: Vj = serde_json::from_str(&version_json)
             .map_err(|e| format!("Failed to parse version json: {}", e))?;
         if let Some(url) = vj.downloads.and_then(|d| d.client).map(|c| c.url) {
             download_file_checked_with_retry(&crate::http_client::HTTP_CLIENT_LONG, &url, &jar_path, jar_sha1.as_deref()).await?;
@@ -452,7 +510,7 @@ async fn download_fabric_libraries(profile: &crate::models::FabricProfileJson, l
 }
 
 async fn run_fabric_installer(installer: &Path, instance_dir: &Path, mc: &str, fabric: &str) -> Result<(), String> {
-    let java_path = crate::launcher::find_or_install_java_for_minecraft(mc).await?;
+    let java_path = crate::launcher::find_or_install_java_for_minecraft(instance_dir, mc).await?;
     let mut cmd = Command::new(&java_path);
     #[cfg(target_os = "windows")]
     {

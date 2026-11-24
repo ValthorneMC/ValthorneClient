@@ -4,6 +4,7 @@ use std::sync::{Arc, LazyLock};
 use std::time::{Duration, Instant};
 use tokio::io::AsyncWriteExt;
 
+// Fallback for when Mojang metadata does not specify Java.
 // Minimum Minecraft release for each Java version, newest first.
 const JAVA_BY_MINECRAFT_RELEASE: [((u32, u32, u32), u8); 5] = [
     ((26, 1, 0), 25),
@@ -13,7 +14,7 @@ const JAVA_BY_MINECRAFT_RELEASE: [((u32, u32, u32), u8); 5] = [
     ((1, 0, 0), 8),
 ];
 
-pub fn required_java_version(minecraft_version: &str) -> u8 {
+pub(crate) fn fallback_java_version(minecraft_version: &str) -> u8 {
     let release = minecraft_version.split('-').next().unwrap_or_default();
     let Some((major, rest)) = release.split_once('.') else {
         return 8;
@@ -31,6 +32,25 @@ pub fn required_java_version(minecraft_version: &str) -> u8 {
         .iter()
         .find(|(minimum, _)| version >= *minimum)
         .map_or(8, |(_, java)| *java)
+}
+
+pub(crate) async fn required_java_version(instance_dir: &Path, minecraft_version: &str) -> u8 {
+    let metadata =
+        crate::instances::load_minecraft_version_json(instance_dir, minecraft_version).await;
+    match metadata {
+        Ok(json) => java_version_from_metadata(&json)
+            .unwrap_or_else(|| fallback_java_version(minecraft_version)),
+        Err(error) => {
+            log::warn!("Using fallback Java version for Minecraft {minecraft_version}: {error}");
+            fallback_java_version(minecraft_version)
+        }
+    }
+}
+
+fn java_version_from_metadata(json: &str) -> Option<u8> {
+    let metadata: serde_json::Value = serde_json::from_str(json).ok()?;
+    let major = u8::try_from(metadata.get("javaVersion")?.get("majorVersion")?.as_u64()?).ok()?;
+    (major >= 8).then_some(major)
 }
 
 static INSTALL_LOCK: LazyLock<Arc<tokio::sync::Mutex<()>>> =
@@ -281,6 +301,27 @@ mod tests {
         }
         path
     }
+    #[tokio::test]
+    async fn cached_mojang_metadata_takes_priority_over_release_table() {
+        let root = scratch();
+        let version = "24w14a";
+        let version_dir = root.join("versions").join(version);
+        std::fs::create_dir_all(&version_dir).unwrap();
+        let json = version_dir.join("24w14a.json");
+
+        std::fs::write(
+            &json,
+            r#"{"id":"24w14a","javaVersion":{"majorVersion":21}}"#,
+        )
+        .unwrap();
+        assert_eq!(required_java_version(&root, version).await, 21);
+
+        std::fs::write(&json, r#"{"id":"24w14a"}"#).unwrap();
+        assert_eq!(required_java_version(&root, version).await, 8);
+
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn installs_zip_and_tar_and_keeps_other_versions() {
         for zip in [true, false] {
@@ -322,13 +363,15 @@ mod tests {
         let archive = root.join("bad.zip");
         std::fs::write(&archive, "bad").unwrap();
         let staging = root.join("staging");
-        assert!(unpack_and_finalize(
-            archive.clone(),
-            staging.clone(),
-            target.clone(),
-            Arc::new(|_, _| {})
-        )
-        .is_err());
+        assert!(
+            unpack_and_finalize(
+                archive.clone(),
+                staging.clone(),
+                target.clone(),
+                Arc::new(|_, _| {})
+            )
+            .is_err()
+        );
         assert!(target.join("old").exists());
         assert!(!staging.exists());
         assert!(!archive.exists());
