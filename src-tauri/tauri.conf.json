@@ -21,7 +21,7 @@
         "minHeight": 650,
         "dragDropEnabled": false,
         "theme": "Dark",
-        "titleBarStyle": "Overlay",
+        "titleBarStyle": "Transparent",
         "hiddenTitle": true
       }
     ],
@@ -32,7 +32,7 @@
         "scope": [
           "https://minotar.net",
           "https://mc-heads.net",
-          "https://*.minecraft.net", 
+          "https://*.minecraft.net",
           "http://files.playvalthorne.com",
           "https://files.playvalthorne.com",
           "$HOME/.valthorneclient/**/*",
